@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useRef } from "react";
-import { Upload, File, Copy, Check, RefreshCw, Lock } from "lucide-react";
+import { Upload, File, Copy, Check, RefreshCw, Lock, UserPlus, Shield } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
 function formatBytes(bytes: number, decimals = 2) {
   if (!+bytes) return '0 Bytes';
@@ -13,6 +14,12 @@ function formatBytes(bytes: number, decimals = 2) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
+interface Permission {
+  id: string;
+  grantee: string;
+  grantedAt: string;
+}
+
 export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [isComputing, setIsComputing] = useState(false);
@@ -20,6 +27,8 @@ export default function Home() {
   const [hash, setHash] = useState<string | null>(null);
   const [timestamp, setTimestamp] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [granteeInput, setGranteeInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -33,6 +42,8 @@ export default function Home() {
     setHash(null);
     setTimestamp(null);
     setCopied(false);
+    setPermissions([]);
+    setGranteeInput("");
 
     try {
       const arrayBuffer = await file.arrayBuffer();
@@ -96,10 +107,34 @@ export default function Home() {
     setFileData(null);
     setHash(null);
     setTimestamp(null);
+    setPermissions([]);
+    setGranteeInput("");
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   }, []);
+
+  const handleGrantAccess = useCallback(() => {
+    const trimmed = granteeInput.trim();
+    if (!trimmed) return;
+    const newPermission: Permission = {
+      id: crypto.randomUUID(),
+      grantee: trimmed,
+      grantedAt: new Date().toISOString(),
+    };
+    setPermissions(prev => [...prev, newPermission]);
+    setGranteeInput("");
+    toast({
+      title: "Access granted",
+      description: `${trimmed} has been added to the permission record.`,
+    });
+  }, [granteeInput, toast]);
+
+  const handleGrantKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      handleGrantAccess();
+    }
+  }, [handleGrantAccess]);
 
   return (
     <div className="min-h-screen w-full bg-background flex flex-col items-center justify-center p-6 md:p-12">
@@ -117,7 +152,7 @@ export default function Home() {
           </p>
         </div>
 
-        {/* State Machine */}
+        {/* Drop zone */}
         {!fileData && !isComputing && (
           <div 
             data-testid="drop-zone"
@@ -145,6 +180,7 @@ export default function Home() {
           </div>
         )}
 
+        {/* Computing state */}
         {isComputing && (
           <Card className="w-full">
             <CardContent className="p-12 flex flex-col items-center justify-center text-center space-y-6">
@@ -157,9 +193,11 @@ export default function Home() {
           </Card>
         )}
 
+        {/* Certificate + permissions */}
         {hash && fileData && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both">
             <Card className="overflow-hidden border-border/50 shadow-lg" data-testid="certificate-block">
+              {/* Certificate header */}
               <div className="bg-muted px-8 py-6 border-b flex items-start justify-between">
                 <div className="space-y-1">
                   <h2 className="text-sm font-semibold tracking-wider text-muted-foreground uppercase">Certificate of Fingerprint</h2>
@@ -167,8 +205,10 @@ export default function Home() {
                 </div>
                 <File className="w-8 h-8 text-primary opacity-20" />
               </div>
+
               <CardContent className="p-0">
                 <div className="divide-y">
+                  {/* Hash */}
                   <div className="p-8 space-y-4">
                     <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Digital Fingerprint</p>
                     <div 
@@ -179,6 +219,7 @@ export default function Home() {
                     </div>
                   </div>
                   
+                  {/* File metadata */}
                   <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x bg-muted/30">
                     <div className="p-6 space-y-2">
                       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">File Name</p>
@@ -193,10 +234,67 @@ export default function Home() {
                       <p className="font-mono text-sm">{timestamp ? new Date(timestamp).toLocaleString() : ''}</p>
                     </div>
                   </div>
+
+                  {/* Permissions section — only shown when at least one has been granted */}
+                  {permissions.length > 0 && (
+                    <div className="p-8 space-y-4" data-testid="permissions-list">
+                      <div className="flex items-center gap-2">
+                        <Shield className="w-4 h-4 text-primary" />
+                        <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Authorized Viewers</p>
+                      </div>
+                      <div className="space-y-3">
+                        {permissions.map((p) => (
+                          <div
+                            key={p.id}
+                            data-testid={`permission-record-${p.id}`}
+                            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 py-3 border-b border-border/40 last:border-0"
+                          >
+                            <span className="font-medium text-foreground">{p.grantee}</span>
+                            <span className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                              Granted {new Date(p.grantedAt).toLocaleString()}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
 
+            {/* Grant access form */}
+            <div className="rounded-xl border border-border bg-muted/20 p-6 space-y-4" data-testid="grant-access-section">
+              <div className="space-y-1">
+                <h3 className="font-medium text-foreground flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-primary" />
+                  Grant access to this fingerprint
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Enter a name or email address. The record will appear on the certificate above with the date access was granted.
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <Input
+                  data-testid="grantee-input"
+                  type="text"
+                  placeholder="Name or email address"
+                  value={granteeInput}
+                  onChange={(e) => setGranteeInput(e.target.value)}
+                  onKeyDown={handleGrantKeyDown}
+                  className="flex-1"
+                />
+                <Button
+                  data-testid="grant-button"
+                  onClick={handleGrantAccess}
+                  disabled={!granteeInput.trim()}
+                  className="shrink-0"
+                >
+                  Grant Access
+                </Button>
+              </div>
+            </div>
+
+            {/* Actions */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Button 
                 size="lg" 
