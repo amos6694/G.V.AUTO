@@ -8,20 +8,26 @@ function parsePrivateKey(raw: string): PrivateKey {
   // Strip optional 0x prefix
   const stripped = raw.startsWith("0x") ? raw.slice(2) : raw;
 
-  const formats: Array<[string, () => PrivateKey]> = [
-    ["fromStringED25519(stripped)", () => PrivateKey.fromStringED25519(stripped)],
-    ["fromStringECDSA(stripped)", () => PrivateKey.fromStringECDSA(stripped)],
-    ["fromStringDer(stripped)", () => PrivateKey.fromStringDer(stripped)],
-    ["fromStringED25519(raw)", () => PrivateKey.fromStringED25519(raw)],
-    ["fromStringECDSA(raw)", () => PrivateKey.fromStringECDSA(raw)],
-    ["fromStringDer(raw)", () => PrivateKey.fromStringDer(raw)],
-  ];
+  // DER-encoded keys start with known ASN.1 prefixes:
+  //   3020... = ED25519 DER
+  //   3030... = ECDSA secp256k1 DER
+  const isDer = stripped.startsWith("3020") || stripped.startsWith("3030");
+
+  const formats: Array<[string, () => PrivateKey]> = isDer
+    ? [
+        ["fromStringDer(stripped)", () => PrivateKey.fromStringDer(stripped)],
+        ["fromStringDer(raw)", () => PrivateKey.fromStringDer(raw)],
+      ]
+    : [
+        ["fromStringED25519(stripped)", () => PrivateKey.fromStringED25519(stripped)],
+        ["fromStringECDSA(stripped)", () => PrivateKey.fromStringECDSA(stripped)],
+        ["fromStringED25519(raw)", () => PrivateKey.fromStringED25519(raw)],
+        ["fromStringECDSA(raw)", () => PrivateKey.fromStringECDSA(raw)],
+      ];
 
   for (const [name, attempt] of formats) {
     try {
-      const key = attempt();
-      logger.info({ format: name }, "Private key parsed successfully");
-      return key;
+      return attempt();
     } catch {
       // try next format
     }
