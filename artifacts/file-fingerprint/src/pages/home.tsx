@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef } from "react";
-import { Upload, File, Copy, Check, RefreshCw, Lock, UserPlus, Shield } from "lucide-react";
+import { Upload, File, Copy, Check, RefreshCw, Lock, UserPlus, Shield, ExternalLink, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,6 +20,13 @@ interface Permission {
   grantedAt: string;
 }
 
+interface HederaRecord {
+  transactionId: string;
+  topicId: string;
+  network: string;
+  explorerUrl: string;
+}
+
 export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [isComputing, setIsComputing] = useState(false);
@@ -29,39 +36,75 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [granteeInput, setGranteeInput] = useState("");
+  const [hederaRecord, setHederaRecord] = useState<HederaRecord | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  const registerOnHedera = async (hashHex: string, file: { name: string; size: number }, ts: string) => {
+    setIsRegistering(true);
+    setRegistrationError(null);
+    try {
+      const res = await fetch("/api/fingerprint/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hash: hashHex,
+          filename: file.name,
+          fileSize: file.size,
+          timestamp: ts,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? `Server error ${res.status}`);
+      }
+      const data = await res.json() as HederaRecord;
+      setHederaRecord(data);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setRegistrationError(msg);
+      toast({
+        title: "Blockchain registration failed",
+        description: msg,
+        variant: "destructive",
+      });
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
   const computeHash = async (file: File) => {
     setIsComputing(true);
-    setFileData({
-      name: file.name,
-      size: file.size,
-      lastModified: file.lastModified,
-    });
+    setFileData({ name: file.name, size: file.size, lastModified: file.lastModified });
     setHash(null);
     setTimestamp(null);
     setCopied(false);
     setPermissions([]);
     setGranteeInput("");
+    setHederaRecord(null);
+    setRegistrationError(null);
 
     try {
       const arrayBuffer = await file.arrayBuffer();
       const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-      
+      const ts = new Date().toISOString();
+
       setHash(hashHex);
-      setTimestamp(new Date().toISOString());
+      setTimestamp(ts);
+      setIsComputing(false);
+
+      await registerOnHedera(hashHex, { name: file.name, size: file.size }, ts);
     } catch (error) {
-      console.error(error);
+      setIsComputing(false);
       toast({
         title: "Error computing fingerprint",
         description: "There was a problem reading or hashing the file.",
         variant: "destructive",
       });
-    } finally {
-      setIsComputing(false);
     }
   };
 
@@ -79,15 +122,13 @@ export default function Home() {
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      computeHash(file);
+      computeHash(e.dataTransfer.files[0]);
     }
   }, []);
 
   const onFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      computeHash(file);
+      computeHash(e.target.files[0]);
     }
   }, []);
 
@@ -95,10 +136,7 @@ export default function Home() {
     if (hash) {
       await navigator.clipboard.writeText(hash);
       setCopied(true);
-      toast({
-        title: "Fingerprint copied",
-        description: "The SHA-256 hash has been copied to your clipboard.",
-      });
+      toast({ title: "Fingerprint copied", description: "The SHA-256 hash has been copied to your clipboard." });
       setTimeout(() => setCopied(false), 2000);
     }
   }, [hash, toast]);
@@ -109,37 +147,27 @@ export default function Home() {
     setTimestamp(null);
     setPermissions([]);
     setGranteeInput("");
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    setHederaRecord(null);
+    setRegistrationError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
 
   const handleGrantAccess = useCallback(() => {
     const trimmed = granteeInput.trim();
     if (!trimmed) return;
-    const newPermission: Permission = {
-      id: crypto.randomUUID(),
-      grantee: trimmed,
-      grantedAt: new Date().toISOString(),
-    };
-    setPermissions(prev => [...prev, newPermission]);
+    setPermissions(prev => [...prev, { id: crypto.randomUUID(), grantee: trimmed, grantedAt: new Date().toISOString() }]);
     setGranteeInput("");
-    toast({
-      title: "Access granted",
-      description: `${trimmed} has been added to the permission record.`,
-    });
+    toast({ title: "Access granted", description: `${trimmed} has been added to the permission record.` });
   }, [granteeInput, toast]);
 
   const handleGrantKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      handleGrantAccess();
-    }
+    if (e.key === "Enter") handleGrantAccess();
   }, [handleGrantAccess]);
 
   return (
     <div className="min-h-screen w-full bg-background flex flex-col items-center justify-center p-6 md:p-12">
       <div className="max-w-3xl w-full mx-auto space-y-10">
-        
+
         {/* Header */}
         <div className="text-center space-y-4">
           <div className="mx-auto w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
@@ -147,14 +175,14 @@ export default function Home() {
           </div>
           <h1 className="text-4xl md:text-5xl font-serif tracking-tight text-foreground">File Fingerprint</h1>
           <p className="text-lg text-muted-foreground max-w-xl mx-auto font-sans leading-relaxed">
-            Establish proof of a file's existence and integrity at a specific moment. 
-            Cryptographic hashing is performed entirely on your device.
+            Establish proof of a file's existence and integrity at a specific moment.
+            Cryptographic hashing is performed entirely on your device and registered to the Hedera testnet blockchain.
           </p>
         </div>
 
         {/* Drop zone */}
         {!fileData && !isComputing && (
-          <div 
+          <div
             data-testid="drop-zone"
             className={`border-2 border-dashed rounded-xl p-12 transition-all duration-200 ease-in-out cursor-pointer flex flex-col items-center justify-center text-center
               ${isDragging ? 'border-primary bg-primary/5 scale-[1.02]' : 'border-border hover:border-primary/50 hover:bg-muted/50'}
@@ -164,12 +192,7 @@ export default function Home() {
             onDrop={onDrop}
             onClick={() => fileInputRef.current?.click()}
           >
-            <input 
-              type="file" 
-              className="hidden" 
-              ref={fileInputRef} 
-              onChange={onFileChange} 
-            />
+            <input type="file" className="hidden" ref={fileInputRef} onChange={onFileChange} />
             <div className="w-16 h-16 rounded-full bg-background border shadow-sm flex items-center justify-center mb-6">
               <Upload className="w-6 h-6 text-muted-foreground" />
             </div>
@@ -193,10 +216,11 @@ export default function Home() {
           </Card>
         )}
 
-        {/* Certificate + permissions */}
+        {/* Certificate */}
         {hash && fileData && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both">
             <Card className="overflow-hidden border-border/50 shadow-lg" data-testid="certificate-block">
+
               {/* Certificate header */}
               <div className="bg-muted px-8 py-6 border-b flex items-start justify-between">
                 <div className="space-y-1">
@@ -208,17 +232,18 @@ export default function Home() {
 
               <CardContent className="p-0">
                 <div className="divide-y">
+
                   {/* Hash */}
                   <div className="p-8 space-y-4">
                     <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Digital Fingerprint</p>
-                    <div 
+                    <div
                       className="font-mono text-xl md:text-2xl lg:text-3xl text-foreground break-all leading-tight tracking-tight select-all"
                       data-testid="fingerprint-display"
                     >
                       {hash}
                     </div>
                   </div>
-                  
+
                   {/* File metadata */}
                   <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x bg-muted/30">
                     <div className="p-6 space-y-2">
@@ -235,7 +260,68 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Permissions section — only shown when at least one has been granted */}
+                  {/* Hedera blockchain record */}
+                  <div className="p-8 space-y-4" data-testid="hedera-record">
+                    <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Blockchain Record</p>
+
+                    {isRegistering && (
+                      <div className="flex items-center gap-3 text-muted-foreground">
+                        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                        <span className="text-sm">Registering on Hedera testnet...</span>
+                      </div>
+                    )}
+
+                    {registrationError && !isRegistering && (
+                      <div className="space-y-3">
+                        <p className="text-sm text-destructive">{registrationError}</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => registerOnHedera(hash, fileData, timestamp!)}
+                          data-testid="retry-hedera-button"
+                        >
+                          Retry registration
+                        </Button>
+                      </div>
+                    )}
+
+                    {hederaRecord && !isRegistering && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Transaction ID</p>
+                            <p className="font-mono text-xs break-all text-foreground leading-relaxed" data-testid="hedera-transaction-id">
+                              {hederaRecord.transactionId}
+                            </p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Topic ID</p>
+                            <p className="font-mono text-xs text-foreground" data-testid="hedera-topic-id">
+                              {hederaRecord.topicId}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/8 px-2.5 py-1 rounded-full">
+                            <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block"></span>
+                            Hedera Testnet
+                          </span>
+                          <a
+                            href={hederaRecord.explorerUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+                            data-testid="hedera-explorer-link"
+                          >
+                            View on HashScan
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Authorized viewers */}
                   {permissions.length > 0 && (
                     <div className="p-8 space-y-4" data-testid="permissions-list">
                       <div className="flex items-center gap-2">
@@ -262,7 +348,7 @@ export default function Home() {
               </CardContent>
             </Card>
 
-            {/* Grant access form */}
+            {/* Grant access */}
             <div className="rounded-xl border border-border bg-muted/20 p-6 space-y-4" data-testid="grant-access-section">
               <div className="space-y-1">
                 <h3 className="font-medium text-foreground flex items-center gap-2">
@@ -296,8 +382,8 @@ export default function Home() {
 
             {/* Actions */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Button 
-                size="lg" 
+              <Button
+                size="lg"
                 className="w-full sm:w-auto text-base gap-2 font-medium"
                 onClick={handleCopy}
                 data-testid="copy-button"
@@ -305,10 +391,9 @@ export default function Home() {
                 {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
                 {copied ? "Copied to clipboard" : "Copy fingerprint"}
               </Button>
-              
-              <Button 
-                variant="outline" 
-                size="lg" 
+              <Button
+                variant="outline"
+                size="lg"
                 className="w-full sm:w-auto text-base gap-2"
                 onClick={handleReset}
                 data-testid="reset-button"
@@ -319,7 +404,7 @@ export default function Home() {
             </div>
           </div>
         )}
-        
+
       </div>
     </div>
   );
