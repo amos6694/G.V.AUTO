@@ -1,49 +1,107 @@
 import { Router, type IRouter } from "express";
-import { Client, PrivateKey, TopicCreateTransaction, TopicMessageSubmitTransaction } from "@hashgraph/sdk";
+import { Client, PrivateKey, TopicMessageSubmitTransaction } from "@hashgraph/sdk";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+const MIRROR_BASE = "https://testnet.mirrornode.hedera.com/api/v1";
+
 function parsePrivateKey(raw: string): PrivateKey {
-  // Strip optional 0x prefix
   const stripped = raw.startsWith("0x") ? raw.slice(2) : raw;
-
-  // DER-encoded keys start with known ASN.1 prefixes:
-  //   3020... = ED25519 DER
-  //   3030... = ECDSA secp256k1 DER
   const isDer = stripped.startsWith("3020") || stripped.startsWith("3030");
-
-  const formats: Array<[string, () => PrivateKey]> = isDer
+  const formats: Array<() => PrivateKey> = isDer
     ? [
-        ["fromStringDer(stripped)", () => PrivateKey.fromStringDer(stripped)],
-        ["fromStringDer(raw)", () => PrivateKey.fromStringDer(raw)],
+        () => PrivateKey.fromStringDer(stripped),
+        () => PrivateKey.fromStringDer(raw),
       ]
     : [
-        ["fromStringED25519(stripped)", () => PrivateKey.fromStringED25519(stripped)],
-        ["fromStringECDSA(stripped)", () => PrivateKey.fromStringECDSA(stripped)],
-        ["fromStringED25519(raw)", () => PrivateKey.fromStringED25519(raw)],
-        ["fromStringECDSA(raw)", () => PrivateKey.fromStringECDSA(raw)],
+        () => PrivateKey.fromStringED25519(stripped),
+        () => PrivateKey.fromStringECDSA(stripped),
+        () => PrivateKey.fromStringED25519(raw),
+        () => PrivateKey.fromStringECDSA(raw),
       ];
-
-  for (const [name, attempt] of formats) {
-    try {
-      return attempt();
-    } catch {
-      // try next format
-    }
+  for (const attempt of formats) {
+    try { return attempt(); } catch { /* try next */ }
   }
-  throw new Error("Could not parse HEDERA_PRIVATE_KEY — check the key format.");
+  throw new Error("Could not parse HEDERA_PRIVATE_KEY.");
 }
 
 function getHederaClient(): Client {
   const accountId = process.env.HEDERA_ACCOUNT_ID;
   const privateKey = process.env.HEDERA_PRIVATE_KEY;
-  if (!accountId || !privateKey) {
-    throw new Error("HEDERA_ACCOUNT_ID and HEDERA_PRIVATE_KEY must be set");
-  }
+  if (!accountId || !privateKey) throw new Error("HEDERA_ACCOUNT_ID and HEDERA_PRIVATE_KEY must be set");
   const client = Client.forTestnet();
   client.setOperator(accountId, parsePrivateKey(privateKey));
   return client;
+}
+
+function getRegistryTopicId(): string {
+  const id = process.env.HEDERA_REGISTRY_TOPIC_ID;
+  if (!id) throw new Error("HEDERA_REGISTRY_TOPIC_ID must be set");
+  return id;
+}
+
+interface FingerprintMessage {
+  sha256: string;
+  filename: string;
+  fileSize: number;
+  timestamp: string;
+  registeredAt: string;
+}
+
+interface RegistrationResult {
+  transactionId: string;
+  topicId: string;
+  network: string;
+  explorerUrl: string;
+  alreadyRegistered: boolean;
+  originalTimestamp?: string;
+}
+
+/**
+ * Query the Hedera Mirror Node to find an existing registration for a given SHA-256 hash.
+ * Scans all messages on the registry topic and returns the first match.
+ */
+async function findExistingRegistration(
+  topicId: string,
+  hash: string
+): Promise<{ transactionId: string; message: FingerprintMessage } | null> {
+  let nextUrl: string | null =
+    `${MIRROR_BASE}/topics/${topicId}/messages?limit=100&order=asc`;
+
+  while (nextUrl) {
+    const res = await fetch(nextUrl);
+    if (!res.ok) {
+      logger.warn({ status: res.status, url: nextUrl }, "Mirror Node query failed");
+      return null;
+    }
+
+    const data = await res.json() as {
+      messages: Array<{ message: string; consensus_timestamp: string; chunk_info?: unknown }>;
+      links?: { next?: string };
+    };
+
+    for (const msg of data.messages) {
+      try {
+        const decoded = Buffer.from(msg.message, "base64").toString("utf8");
+        const parsed = JSON.parse(decoded) as Partial<FingerprintMessage>;
+        if (parsed.sha256 === hash) {
+          // Reconstruct a transaction ID from the consensus timestamp
+          const tsNs = msg.consensus_timestamp; // e.g. "1234567890.123456789"
+          return {
+            transactionId: `registry-topic:${topicId}@${tsNs}`,
+            message: parsed as FingerprintMessage,
+          };
+        }
+      } catch {
+        // malformed message — skip
+      }
+    }
+
+    nextUrl = data.links?.next ? `${MIRROR_BASE}${data.links.next}` : null;
+  }
+
+  return null;
 }
 
 router.post("/fingerprint/register", async (req, res): Promise<void> => {
@@ -71,6 +129,38 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
     return;
   }
 
+  let topicId: string;
+  try {
+    topicId = getRegistryTopicId();
+  } catch (err) {
+    req.log.error({ err }, "Registry topic not configured");
+    res.status(503).json({ error: "Registry topic not configured." });
+    return;
+  }
+
+  // Step 1: check if this hash is already on-chain
+  let existing: { transactionId: string; message: FingerprintMessage } | null = null;
+  try {
+    existing = await findExistingRegistration(topicId, hash);
+  } catch (err) {
+    req.log.warn({ err }, "Mirror Node lookup failed; proceeding with registration");
+  }
+
+  if (existing) {
+    req.log.info({ hash: hash.slice(0, 16) }, "Fingerprint already registered — returning existing record");
+    const result: RegistrationResult = {
+      transactionId: existing.transactionId,
+      topicId,
+      network: "testnet",
+      explorerUrl: `https://hashscan.io/testnet/topic/${topicId}`,
+      alreadyRegistered: true,
+      originalTimestamp: existing.message.registeredAt ?? existing.message.timestamp,
+    };
+    res.json(result);
+    return;
+  }
+
+  // Step 2: new fingerprint — write to registry topic
   let client: Client;
   try {
     client = getHederaClient();
@@ -81,46 +171,38 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
   }
 
   try {
-    // Create a new topic for this fingerprint record
-    const topicTx = await new TopicCreateTransaction()
-      .setTopicMemo(`file-fingerprint:${hash.slice(0, 16)}`)
-      .execute(client);
-
-    const topicReceipt = await topicTx.getReceipt(client);
-    const topicId = topicReceipt.topicId!.toString();
-
-    req.log.info({ topicId, hash: hash.slice(0, 16) }, "Hedera topic created");
-
-    // Submit the fingerprint record as a message on the topic
+    const registeredAt = new Date().toISOString();
     const message = JSON.stringify({
       sha256: hash,
       filename,
       fileSize,
       timestamp,
-      registeredAt: new Date().toISOString(),
-    });
+      registeredAt,
+    } satisfies FingerprintMessage);
 
     const msgTx = await new TopicMessageSubmitTransaction()
       .setTopicId(topicId)
       .setMessage(message)
       .execute(client);
 
-    const msgReceipt = await msgTx.getReceipt(client);
+    await msgTx.getReceipt(client);
     const transactionId = msgTx.transactionId.toString();
 
-    req.log.info({ transactionId, topicId }, "Fingerprint registered on Hedera testnet");
+    req.log.info({ transactionId, topicId, hash: hash.slice(0, 16) }, "Fingerprint registered on Hedera testnet");
 
-    res.json({
+    const result: RegistrationResult = {
       transactionId,
       topicId,
       network: "testnet",
       explorerUrl: `https://hashscan.io/testnet/topic/${topicId}`,
-    });
+      alreadyRegistered: false,
+    };
+    res.json(result);
   } catch (err) {
     req.log.error({ err }, "Hedera transaction failed");
     res.status(502).json({ error: "Failed to register fingerprint on Hedera. Check server logs." });
   } finally {
-    client.close();
+    client!.close();
   }
 });
 

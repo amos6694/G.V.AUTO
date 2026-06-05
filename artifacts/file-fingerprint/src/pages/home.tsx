@@ -25,6 +25,8 @@ interface HederaRecord {
   topicId: string;
   network: string;
   explorerUrl: string;
+  alreadyRegistered: boolean;
+  originalTimestamp?: string;
 }
 
 export default function Home() {
@@ -262,12 +264,19 @@ export default function Home() {
 
                   {/* Hedera blockchain record */}
                   <div className="p-8 space-y-4" data-testid="hedera-record">
-                    <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Blockchain Record</p>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Blockchain Record</p>
+                      {hederaRecord?.alreadyRegistered && (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full" data-testid="already-registered-badge">
+                          Previously registered
+                        </span>
+                      )}
+                    </div>
 
                     {isRegistering && (
                       <div className="flex items-center gap-3 text-muted-foreground">
                         <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                        <span className="text-sm">Registering on Hedera testnet...</span>
+                        <span className="text-sm">Checking blockchain for existing record...</span>
                       </div>
                     )}
 
@@ -287,15 +296,24 @@ export default function Home() {
 
                     {hederaRecord && !isRegistering && (
                       <div className="space-y-4">
+                        {hederaRecord.alreadyRegistered && hederaRecord.originalTimestamp && (
+                          <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+                            This fingerprint was first registered on{" "}
+                            <span className="font-medium">{new Date(hederaRecord.originalTimestamp).toLocaleString()}</span>.
+                            No new blockchain record was created.
+                          </div>
+                        )}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-1">
-                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Transaction ID</p>
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                              {hederaRecord.alreadyRegistered ? "Original Record Reference" : "Transaction ID"}
+                            </p>
                             <p className="font-mono text-xs break-all text-foreground leading-relaxed" data-testid="hedera-transaction-id">
                               {hederaRecord.transactionId}
                             </p>
                           </div>
                           <div className="space-y-1">
-                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Topic ID</p>
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Registry Topic ID</p>
                             <p className="font-mono text-xs text-foreground" data-testid="hedera-topic-id">
                               {hederaRecord.topicId}
                             </p>
@@ -313,7 +331,7 @@ export default function Home() {
                             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
                             data-testid="hedera-explorer-link"
                           >
-                            View on HashScan
+                            View registry on HashScan
                             <ExternalLink className="w-3 h-3" />
                           </a>
                         </div>
