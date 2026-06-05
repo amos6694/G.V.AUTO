@@ -1,10 +1,8 @@
 import { Router, type IRouter } from "express";
 import { Client, PrivateKey, TopicMessageSubmitTransaction } from "@hashgraph/sdk";
-import { logger } from "../lib/logger";
+import { findInRegistry, getRegistryTopicId, type FingerprintMessage } from "../lib/hedera-registry";
 
 const router: IRouter = Router();
-
-const MIRROR_BASE = "https://testnet.mirrornode.hedera.com/api/v1";
 
 function parsePrivateKey(raw: string): PrivateKey {
   const stripped = raw.startsWith("0x") ? raw.slice(2) : raw;
@@ -35,20 +33,6 @@ function getHederaClient(): Client {
   return client;
 }
 
-function getRegistryTopicId(): string {
-  const id = process.env.HEDERA_REGISTRY_TOPIC_ID;
-  if (!id) throw new Error("HEDERA_REGISTRY_TOPIC_ID must be set");
-  return id;
-}
-
-interface FingerprintMessage {
-  sha256: string;
-  filename: string;
-  fileSize: number;
-  timestamp: string;
-  registeredAt: string;
-}
-
 interface RegistrationResult {
   transactionId: string;
   topicId: string;
@@ -56,52 +40,6 @@ interface RegistrationResult {
   explorerUrl: string;
   alreadyRegistered: boolean;
   originalTimestamp?: string;
-}
-
-/**
- * Query the Hedera Mirror Node to find an existing registration for a given SHA-256 hash.
- * Scans all messages on the registry topic and returns the first match.
- */
-async function findExistingRegistration(
-  topicId: string,
-  hash: string
-): Promise<{ transactionId: string; message: FingerprintMessage } | null> {
-  let nextUrl: string | null =
-    `${MIRROR_BASE}/topics/${topicId}/messages?limit=100&order=asc`;
-
-  while (nextUrl) {
-    const res = await fetch(nextUrl);
-    if (!res.ok) {
-      logger.warn({ status: res.status, url: nextUrl }, "Mirror Node query failed");
-      return null;
-    }
-
-    const data = await res.json() as {
-      messages: Array<{ message: string; consensus_timestamp: string; chunk_info?: unknown }>;
-      links?: { next?: string };
-    };
-
-    for (const msg of data.messages) {
-      try {
-        const decoded = Buffer.from(msg.message, "base64").toString("utf8");
-        const parsed = JSON.parse(decoded) as Partial<FingerprintMessage>;
-        if (parsed.sha256 === hash) {
-          // Reconstruct a transaction ID from the consensus timestamp
-          const tsNs = msg.consensus_timestamp; // e.g. "1234567890.123456789"
-          return {
-            transactionId: `registry-topic:${topicId}@${tsNs}`,
-            message: parsed as FingerprintMessage,
-          };
-        }
-      } catch {
-        // malformed message — skip
-      }
-    }
-
-    nextUrl = data.links?.next ? `${MIRROR_BASE}${data.links.next}` : null;
-  }
-
-  return null;
 }
 
 router.post("/fingerprint/register", async (req, res): Promise<void> => {
@@ -138,26 +76,24 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
     return;
   }
 
-  // Step 1: check if this hash is already on-chain
-  let existing: { transactionId: string; message: FingerprintMessage } | null = null;
+  // Step 1: check if this hash is already on-chain via Mirror Node
   try {
-    existing = await findExistingRegistration(topicId, hash);
+    const existing = await findInRegistry(topicId, hash);
+    if (existing) {
+      req.log.info({ hash: hash.slice(0, 16) }, "Fingerprint already registered — returning existing record");
+      const result: RegistrationResult = {
+        transactionId: `registry-topic:${topicId}@${existing.consensusTimestamp}`,
+        topicId,
+        network: "testnet",
+        explorerUrl: `https://hashscan.io/testnet/topic/${topicId}`,
+        alreadyRegistered: true,
+        originalTimestamp: existing.message.registeredAt ?? existing.message.timestamp,
+      };
+      res.json(result);
+      return;
+    }
   } catch (err) {
     req.log.warn({ err }, "Mirror Node lookup failed; proceeding with registration");
-  }
-
-  if (existing) {
-    req.log.info({ hash: hash.slice(0, 16) }, "Fingerprint already registered — returning existing record");
-    const result: RegistrationResult = {
-      transactionId: existing.transactionId,
-      topicId,
-      network: "testnet",
-      explorerUrl: `https://hashscan.io/testnet/topic/${topicId}`,
-      alreadyRegistered: true,
-      originalTimestamp: existing.message.registeredAt ?? existing.message.timestamp,
-    };
-    res.json(result);
-    return;
   }
 
   // Step 2: new fingerprint — write to registry topic

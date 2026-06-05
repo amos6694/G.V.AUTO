@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef } from "react";
-import { Upload, File, Copy, Check, RefreshCw, Lock, UserPlus, Shield, ExternalLink, Loader2 } from "lucide-react";
+import { Link } from "wouter";
+import { Upload, File, Copy, Check, RefreshCw, Lock, UserPlus, Shield, ExternalLink, Loader2, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -167,7 +168,14 @@ export default function Home() {
   }, [handleGrantAccess]);
 
   return (
-    <div className="min-h-screen w-full bg-background flex flex-col items-center justify-center p-6 md:p-12">
+    <div className="min-h-screen w-full bg-background flex flex-col items-center p-6 md:p-12">
+      {/* Nav */}
+      <div className="w-full max-w-3xl flex items-center justify-end mb-8">
+        <Link href="/verify" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors font-medium">
+          <Search className="w-4 h-4" />
+          Verify a fingerprint
+        </Link>
+      </div>
       <div className="max-w-3xl w-full mx-auto space-y-10">
 
         {/* Header */}
