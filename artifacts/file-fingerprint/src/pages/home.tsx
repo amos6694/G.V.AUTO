@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef } from "react";
 import { Link } from "wouter";
-import { Upload, File, Copy, Check, RefreshCw, Lock, UserPlus, Shield, ExternalLink, Loader2, Search } from "lucide-react";
+import { Upload, File, Copy, Check, RefreshCw, Lock, UserPlus, Shield, ExternalLink, Loader2, Search, Link2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,6 +37,7 @@ export default function Home() {
   const [hash, setHash] = useState<string | null>(null);
   const [timestamp, setTimestamp] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [granteeInput, setGranteeInput] = useState("");
   const [hederaRecord, setHederaRecord] = useState<HederaRecord | null>(null);
@@ -144,6 +145,15 @@ export default function Home() {
     }
   }, [hash, toast]);
 
+  const handleCopyLink = useCallback(async () => {
+    if (!hash) return;
+    const url = `${window.location.origin}/verify?hash=${hash}`;
+    await navigator.clipboard.writeText(url);
+    setLinkCopied(true);
+    toast({ title: "Verification link copied", description: "Anyone with this link can verify the fingerprint on Hedera." });
+    setTimeout(() => setLinkCopied(false), 2000);
+  }, [hash, toast]);
+
   const handleReset = useCallback(() => {
     setFileData(null);
     setHash(null);
@@ -152,6 +162,7 @@ export default function Home() {
     setGranteeInput("");
     setHederaRecord(null);
     setRegistrationError(null);
+    setLinkCopied(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
 
@@ -416,6 +427,15 @@ export default function Home() {
               >
                 {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
                 {copied ? "Copied to clipboard" : "Copy fingerprint"}
+              </Button>
+              <Button
+                variant="outline"
+                size="lg"
+                className="w-full sm:w-auto text-base gap-2"
+                onClick={handleCopyLink}
+              >
+                {linkCopied ? <Check className="w-5 h-5" /> : <Link2 className="w-5 h-5" />}
+                {linkCopied ? "Link copied!" : "Copy verification link"}
               </Button>
               <Button
                 variant="outline"

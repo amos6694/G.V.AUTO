@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useRef } from "react";
-import { Link } from "wouter";
+import React, { useState, useCallback, useRef, useEffect } from "react";
+import { Link, useSearch } from "wouter";
 import { Upload, Search, ShieldCheck, ShieldX, ExternalLink, RotateCcw, Loader2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,6 +31,7 @@ interface VerifyResult {
 type InputMode = "file" | "hash";
 
 export default function Verify() {
+  const search = useSearch();
   const [mode, setMode] = useState<InputMode>("file");
   const [isDragging, setIsDragging] = useState(false);
   const [isHashing, setIsHashing] = useState(false);
@@ -41,6 +42,19 @@ export default function Verify() {
   const [droppedFilename, setDroppedFilename] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  // Auto-run lookup when ?hash= is present in the URL
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const hashParam = params.get("hash")?.toLowerCase().trim() ?? "";
+    if (/^[0-9a-f]{64}$/.test(hashParam)) {
+      setMode("hash");
+      setPastedHash(hashParam);
+      setComputedHash(hashParam);
+      queryRegistry(hashParam);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const queryRegistry = useCallback(async (hash: string) => {
     setIsSearching(true);
