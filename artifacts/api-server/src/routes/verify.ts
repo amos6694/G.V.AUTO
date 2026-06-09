@@ -22,7 +22,8 @@ router.get("/fingerprint/verify", async (req, res): Promise<void> => {
   try {
     const match = await findInRegistry(topicId, hash);
 
-    if (!match) {
+    // Private registrations must never be exposed to external callers
+    if (!match || match.message.visibility === "private") {
       res.json({ verified: false, hash, topicId, network: "testnet" });
       return;
     }

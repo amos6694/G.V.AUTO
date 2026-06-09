@@ -8,6 +8,8 @@ export interface FingerprintMessage {
   fileSize: number;
   timestamp: string;
   registeredAt: string;
+  /** "public" records are returned to anyone who verifies. "private" records are hidden from all external lookups. Defaults to "public" for backward-compatibility. */
+  visibility?: "public" | "private";
 }
 
 export interface RegistryMatch {

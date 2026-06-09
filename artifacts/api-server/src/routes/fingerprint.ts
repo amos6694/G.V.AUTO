@@ -43,11 +43,12 @@ interface RegistrationResult {
 }
 
 router.post("/fingerprint/register", async (req, res): Promise<void> => {
-  const { hash, filename, fileSize, timestamp } = req.body as {
+  const { hash, filename, fileSize, timestamp, visibility: rawVisibility } = req.body as {
     hash?: string;
     filename?: string;
     fileSize?: number;
     timestamp?: string;
+    visibility?: string;
   };
 
   if (!hash || typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) {
@@ -66,6 +67,8 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Missing timestamp." });
     return;
   }
+  const visibility: "public" | "private" =
+    rawVisibility === "private" ? "private" : "public";
 
   let topicId: string;
   try {
@@ -76,11 +79,13 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
     return;
   }
 
-  // Step 1: check if this hash is already on-chain via Mirror Node
+  // Step 1: check if this hash is already on-chain via Mirror Node.
+  // Only honour an existing record if it is public — private records are invisible
+  // to other uploaders, who get a fresh registration of their own.
   try {
     const existing = await findInRegistry(topicId, hash);
-    if (existing) {
-      req.log.info({ hash: hash.slice(0, 16) }, "Fingerprint already registered — returning existing record");
+    if (existing && existing.message.visibility !== "private") {
+      req.log.info({ hash: hash.slice(0, 16) }, "Fingerprint already registered publicly — returning existing record");
       const result: RegistrationResult = {
         transactionId: `registry-topic:${topicId}@${existing.consensusTimestamp}`,
         topicId,
@@ -91,6 +96,9 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
       };
       res.json(result);
       return;
+    }
+    if (existing) {
+      req.log.info({ hash: hash.slice(0, 16) }, "Existing record is private — registering fresh record for new uploader");
     }
   } catch (err) {
     req.log.warn({ err }, "Mirror Node lookup failed; proceeding with registration");
@@ -114,6 +122,7 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
       fileSize,
       timestamp,
       registeredAt,
+      visibility,
     } satisfies FingerprintMessage);
 
     const msgTx = await new TopicMessageSubmitTransaction()

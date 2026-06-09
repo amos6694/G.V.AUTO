@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef } from "react";
 import { Link } from "wouter";
-import { Upload, File, Copy, Check, RefreshCw, Lock, UserPlus, Shield, ExternalLink, Loader2, Search, Link2 } from "lucide-react";
+import { Upload, File, Copy, Check, RefreshCw, Lock, UserPlus, Shield, ExternalLink, Loader2, Search, Link2, Globe, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,6 +36,7 @@ export default function Home() {
   const [fileData, setFileData] = useState<{ name: string; size: number; lastModified: number } | null>(null);
   const [hash, setHash] = useState<string | null>(null);
   const [timestamp, setTimestamp] = useState<string | null>(null);
+  const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [permissions, setPermissions] = useState<Permission[]>([]);
@@ -46,7 +47,7 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  const registerOnHedera = async (hashHex: string, file: { name: string; size: number }, ts: string) => {
+  const registerOnHedera = async (hashHex: string, file: { name: string; size: number }, ts: string, vis: "public" | "private") => {
     setIsRegistering(true);
     setRegistrationError(null);
     try {
@@ -58,6 +59,7 @@ export default function Home() {
           filename: file.name,
           fileSize: file.size,
           timestamp: ts,
+          visibility: vis,
         }),
       });
       if (!res.ok) {
@@ -101,7 +103,7 @@ export default function Home() {
       setTimestamp(ts);
       setIsComputing(false);
 
-      await registerOnHedera(hashHex, { name: file.name, size: file.size }, ts);
+      await registerOnHedera(hashHex, { name: file.name, size: file.size }, ts, visibility);
     } catch (error) {
       setIsComputing(false);
       toast({
@@ -201,6 +203,41 @@ export default function Home() {
           </p>
         </div>
 
+        {/* Visibility toggle — shown before file is uploaded */}
+        {!fileData && !isComputing && (
+          <div className="flex items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => setVisibility("public")}
+              className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-l-lg border text-sm font-medium transition-colors
+                ${visibility === "public"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background text-muted-foreground border-border hover:bg-muted/60"}`}
+            >
+              <Globe className="w-4 h-4" />
+              Public
+            </button>
+            <button
+              type="button"
+              onClick={() => setVisibility("private")}
+              className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-r-lg border-y border-r text-sm font-medium transition-colors
+                ${visibility === "private"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background text-muted-foreground border-border hover:bg-muted/60"}`}
+            >
+              <EyeOff className="w-4 h-4" />
+              Private
+            </button>
+          </div>
+        )}
+        {!fileData && !isComputing && (
+          <p className="text-xs text-center text-muted-foreground -mt-6">
+            {visibility === "public"
+              ? "Anyone with the file or its hash can verify this registration."
+              : "This registration will be hidden from all public lookups and verifications."}
+          </p>
+        )}
+
         {/* Drop zone */}
         {!fileData && !isComputing && (
           <div
@@ -285,11 +322,24 @@ export default function Home() {
                   <div className="p-8 space-y-4" data-testid="hedera-record">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Blockchain Record</p>
-                      {hederaRecord?.alreadyRegistered && (
-                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full" data-testid="already-registered-badge">
-                          Previously registered
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {visibility === "private" ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-full">
+                            <EyeOff className="w-3 h-3" />
+                            Private
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                            <Globe className="w-3 h-3" />
+                            Public
+                          </span>
+                        )}
+                        {hederaRecord?.alreadyRegistered && (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full" data-testid="already-registered-badge">
+                            Previously registered
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {isRegistering && (
@@ -305,7 +355,7 @@ export default function Home() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => registerOnHedera(hash, fileData, timestamp!)}
+                          onClick={() => registerOnHedera(hash, fileData, timestamp!, visibility)}
                           data-testid="retry-hedera-button"
                         >
                           Retry registration
@@ -428,15 +478,17 @@ export default function Home() {
                 {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
                 {copied ? "Copied to clipboard" : "Copy fingerprint"}
               </Button>
-              <Button
-                variant="outline"
-                size="lg"
-                className="w-full sm:w-auto text-base gap-2"
-                onClick={handleCopyLink}
-              >
-                {linkCopied ? <Check className="w-5 h-5" /> : <Link2 className="w-5 h-5" />}
-                {linkCopied ? "Link copied!" : "Copy verification link"}
-              </Button>
+              {visibility === "public" && (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="w-full sm:w-auto text-base gap-2"
+                  onClick={handleCopyLink}
+                >
+                  {linkCopied ? <Check className="w-5 h-5" /> : <Link2 className="w-5 h-5" />}
+                  {linkCopied ? "Link copied!" : "Copy verification link"}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="lg"
