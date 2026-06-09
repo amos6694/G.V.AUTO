@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef } from "react";
 import { Link } from "wouter";
-import { Upload, File, Copy, Check, RefreshCw, Lock, UserPlus, Shield, ExternalLink, Loader2, Search, Link2, Globe, EyeOff } from "lucide-react";
+import { Upload, File, Copy, Check, RefreshCw, Lock, UserPlus, Shield, ExternalLink, Loader2, Search, Link2, Globe, EyeOff, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,6 +28,7 @@ interface HederaRecord {
   explorerUrl: string;
   alreadyRegistered: boolean;
   originalTimestamp?: string;
+  ownerAccountId?: string;
 }
 
 export default function Home() {
@@ -205,22 +206,11 @@ export default function Home() {
 
         {/* Visibility toggle — shown before file is uploaded */}
         {!fileData && !isComputing && (
-          <div className="flex items-center justify-center gap-2">
-            <button
-              type="button"
-              onClick={() => setVisibility("public")}
-              className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-l-lg border text-sm font-medium transition-colors
-                ${visibility === "public"
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-background text-muted-foreground border-border hover:bg-muted/60"}`}
-            >
-              <Globe className="w-4 h-4" />
-              Public
-            </button>
+          <div className="flex items-center justify-center">
             <button
               type="button"
               onClick={() => setVisibility("private")}
-              className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-r-lg border-y border-r text-sm font-medium transition-colors
+              className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-l-lg border text-sm font-medium transition-colors
                 ${visibility === "private"
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-background text-muted-foreground border-border hover:bg-muted/60"}`}
@@ -228,13 +218,37 @@ export default function Home() {
               <EyeOff className="w-4 h-4" />
               Private
             </button>
+            <button
+              type="button"
+              onClick={() => setVisibility("semi-public")}
+              className={`inline-flex items-center gap-1.5 px-4 py-2 border-y border-r text-sm font-medium transition-colors
+                ${visibility === "semi-public"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background text-muted-foreground border-border hover:bg-muted/60"}`}
+            >
+              <Users className="w-4 h-4" />
+              Semi-Public
+            </button>
+            <button
+              type="button"
+              onClick={() => setVisibility("public")}
+              className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-r-lg border-y border-r text-sm font-medium transition-colors
+                ${visibility === "public"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background text-muted-foreground border-border hover:bg-muted/60"}`}
+            >
+              <Globe className="w-4 h-4" />
+              Public
+            </button>
           </div>
         )}
         {!fileData && !isComputing && (
           <p className="text-xs text-center text-muted-foreground -mt-6">
-            {visibility === "public"
-              ? "Anyone with the file or its hash can verify this registration."
-              : "This registration will be hidden from all public lookups and verifications."}
+            {visibility === "private"
+              ? "Only you can access this. Others uploading the same file start fresh with no trace of your record."
+              : visibility === "semi-public"
+              ? "Shareable by others, but your account ID and timestamp are permanently attached to every copy."
+              : "Freely discoverable by anyone. Listed on your public profile."}
           </p>
         )}
 
@@ -328,6 +342,11 @@ export default function Home() {
                             <EyeOff className="w-3 h-3" />
                             Private
                           </span>
+                        ) : visibility === "semi-public" ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full">
+                            <Users className="w-3 h-3" />
+                            Semi-Public
+                          </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
                             <Globe className="w-3 h-3" />
@@ -388,6 +407,23 @@ export default function Home() {
                             </p>
                           </div>
                         </div>
+                        {hederaRecord.ownerAccountId && visibility !== "private" && (
+                          <div className="rounded-lg bg-muted/40 border px-4 py-3 space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                              {visibility === "semi-public" ? "Owner Account (always attached)" : "Owner Account"}
+                            </p>
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <p className="font-mono text-sm text-foreground">{hederaRecord.ownerAccountId}</p>
+                              <Link
+                                href={`/profile/${hederaRecord.ownerAccountId}`}
+                                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+                              >
+                                View public profile
+                                <ExternalLink className="w-3 h-3" />
+                              </Link>
+                            </div>
+                          </div>
+                        )}
                         <div className="flex items-center gap-2">
                           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/8 px-2.5 py-1 rounded-full">
                             <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block"></span>
@@ -478,7 +514,7 @@ export default function Home() {
                 {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
                 {copied ? "Copied to clipboard" : "Copy fingerprint"}
               </Button>
-              {visibility === "public" && (
+              {visibility !== "private" && (
                 <Button
                   variant="outline"
                   size="lg"

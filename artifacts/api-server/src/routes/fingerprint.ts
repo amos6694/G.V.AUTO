@@ -40,6 +40,7 @@ interface RegistrationResult {
   explorerUrl: string;
   alreadyRegistered: boolean;
   originalTimestamp?: string;
+  ownerAccountId?: string;
 }
 
 router.post("/fingerprint/register", async (req, res): Promise<void> => {
@@ -67,8 +68,13 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Missing timestamp." });
     return;
   }
-  const visibility: "public" | "private" =
-    rawVisibility === "private" ? "private" : "public";
+
+  const visibility: "private" | "semi-public" | "public" =
+    rawVisibility === "private" ? "private"
+    : rawVisibility === "semi-public" ? "semi-public"
+    : "public";
+
+  const ownerAccountId = process.env.HEDERA_ACCOUNT_ID ?? "unknown";
 
   let topicId: string;
   try {
@@ -80,12 +86,18 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
   }
 
   // Step 1: check if this hash is already on-chain via Mirror Node.
-  // Only honour an existing record if it is public — private records are invisible
-  // to other uploaders, who get a fresh registration of their own.
+  // Private records are invisible — a duplicate upload against a private record
+  // proceeds as a fresh registration, revealing nothing about the existing record.
+  // Semi-public and public duplicates surface the original owner info.
   try {
     const existing = await findInRegistry(topicId, hash);
-    if (existing && existing.message.visibility !== "private") {
-      req.log.info({ hash: hash.slice(0, 16) }, "Fingerprint already registered publicly — returning existing record");
+    const existingVisibility = existing?.message.visibility ?? "public";
+
+    if (existing && existingVisibility !== "private") {
+      req.log.info(
+        { hash: hash.slice(0, 16), existingVisibility },
+        "Fingerprint already registered — returning existing record"
+      );
       const result: RegistrationResult = {
         transactionId: `registry-topic:${topicId}@${existing.consensusTimestamp}`,
         topicId,
@@ -93,12 +105,17 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
         explorerUrl: `https://hashscan.io/testnet/topic/${topicId}`,
         alreadyRegistered: true,
         originalTimestamp: existing.message.registeredAt ?? existing.message.timestamp,
+        ownerAccountId: existing.message.ownerAccountId,
       };
       res.json(result);
       return;
     }
+
     if (existing) {
-      req.log.info({ hash: hash.slice(0, 16) }, "Existing record is private — registering fresh record for new uploader");
+      req.log.info(
+        { hash: hash.slice(0, 16) },
+        "Existing record is private — registering fresh record for new uploader"
+      );
     }
   } catch (err) {
     req.log.warn({ err }, "Mirror Node lookup failed; proceeding with registration");
@@ -123,6 +140,7 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
       timestamp,
       registeredAt,
       visibility,
+      ownerAccountId,
     } satisfies FingerprintMessage);
 
     const msgTx = await new TopicMessageSubmitTransaction()
@@ -133,7 +151,10 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
     await msgTx.getReceipt(client);
     const transactionId = msgTx.transactionId.toString();
 
-    req.log.info({ transactionId, topicId, hash: hash.slice(0, 16) }, "Fingerprint registered on Hedera testnet");
+    req.log.info(
+      { transactionId, topicId, hash: hash.slice(0, 16), visibility },
+      "Fingerprint registered on Hedera testnet"
+    );
 
     const result: RegistrationResult = {
       transactionId,
@@ -141,6 +162,7 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
       network: "testnet",
       explorerUrl: `https://hashscan.io/testnet/topic/${topicId}`,
       alreadyRegistered: false,
+      ownerAccountId,
     };
     res.json(result);
   } catch (err) {

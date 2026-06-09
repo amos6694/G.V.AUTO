@@ -22,7 +22,8 @@ router.get("/fingerprint/verify", async (req, res): Promise<void> => {
   try {
     const match = await findInRegistry(topicId, hash);
 
-    // Private registrations must never be exposed to external callers
+    // Private registrations must never be exposed to external callers.
+    // Treat them as not found — indistinguishable from an unregistered hash.
     if (!match || match.message.visibility === "private") {
       res.json({ verified: false, hash, topicId, network: "testnet" });
       return;
@@ -39,6 +40,8 @@ router.get("/fingerprint/verify", async (req, res): Promise<void> => {
       originalTimestamp: match.message.timestamp,
       registeredAt: match.message.registeredAt,
       consensusTimestamp: match.consensusTimestamp,
+      visibility: match.message.visibility ?? "public",
+      ownerAccountId: match.message.ownerAccountId,
     });
   } catch (err) {
     req.log.error({ err }, "Verify lookup failed");
