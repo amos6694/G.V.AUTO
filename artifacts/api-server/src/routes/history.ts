@@ -1,0 +1,54 @@
+import { Router, type IRouter } from "express";
+import { getFullHistory, getRegistryTopicId } from "../lib/hedera-registry";
+
+const router: IRouter = Router();
+
+/**
+ * GET /api/fingerprint/history?hash=<sha256>
+ *
+ * Returns the complete timeline of on-chain events for a fingerprint.
+ * Privacy rule: if the current effective visibility is "private" the response
+ * is identical to "not found" — the caller cannot distinguish a private record
+ * from an unregistered hash.
+ */
+router.get("/fingerprint/history", async (req, res): Promise<void> => {
+  const hash =
+    typeof req.query.hash === "string" ? req.query.hash.toLowerCase().trim() : "";
+
+  if (!hash || !/^[0-9a-f]{64}$/.test(hash)) {
+    res.status(400).json({ error: "Missing or invalid hash. Provide a 64-char hex SHA-256 digest as ?hash=..." });
+    return;
+  }
+
+  let topicId: string;
+  try {
+    topicId = getRegistryTopicId();
+  } catch {
+    res.status(503).json({ error: "Registry not configured." });
+    return;
+  }
+
+  try {
+    const result = await getFullHistory(topicId, hash);
+
+    if (!result || result.currentVisibility === "private") {
+      res.json({ found: false, hash, topicId, events: [] });
+      return;
+    }
+
+    res.json({
+      found: true,
+      hash,
+      topicId,
+      network: "testnet",
+      explorerUrl: `https://hashscan.io/testnet/topic/${topicId}`,
+      events: result.events,
+      currentVisibility: result.currentVisibility,
+    });
+  } catch (err) {
+    req.log.error({ err }, "History lookup failed");
+    res.status(502).json({ error: "Failed to query Hedera registry." });
+  }
+});
+
+export default router;

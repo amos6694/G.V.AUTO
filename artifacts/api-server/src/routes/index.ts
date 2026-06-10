@@ -4,6 +4,7 @@ import fingerprintRouter from "./fingerprint";
 import verifyRouter from "./verify";
 import profileRouter from "./profile";
 import changeVisibilityRouter from "./change-visibility";
+import historyRouter from "./history";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(fingerprintRouter);
 router.use(verifyRouter);
 router.use(profileRouter);
 router.use(changeVisibilityRouter);
+router.use(historyRouter);
 
 export default router;

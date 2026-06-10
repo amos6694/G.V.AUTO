@@ -173,3 +173,74 @@ export function getRegistryTopicId(): string {
   if (!id) throw new Error("HEDERA_REGISTRY_TOPIC_ID must be set");
   return id;
 }
+
+// ─── History ──────────────────────────────────────────────────────────────────
+
+export interface HistoryEvent {
+  /** "registration" for the original record; "visibility-update" for any change. */
+  eventType: "registration" | "visibility-update";
+  /** Raw Hedera consensus timestamp string, e.g. "1725123456.789000000" */
+  consensusTimestamp: string;
+  visibility: "private" | "semi-public" | "public";
+  ownerAccountId?: string;
+  /** ISO string from the message payload */
+  registeredAt: string;
+  /** Only present on the original registration event */
+  filename?: string;
+  fileSize?: number;
+}
+
+/**
+ * Returns every on-chain event for `hash` in ascending chronological order, or
+ * null if no events exist for this hash.
+ *
+ * Also returns the `currentVisibility` so the caller can enforce privacy rules
+ * without repeating the scan.
+ */
+export async function getFullHistory(
+  topicId: string,
+  hash: string
+): Promise<{ events: HistoryEvent[]; currentVisibility: "private" | "semi-public" | "public" } | null> {
+  const events: HistoryEvent[] = [];
+
+  let nextUrl: string | null =
+    `${MIRROR_BASE}/topics/${topicId}/messages?limit=100&order=asc`;
+
+  while (nextUrl) {
+    const res = await fetch(nextUrl);
+    if (!res.ok) {
+      logger.warn({ status: res.status, url: nextUrl }, "Mirror Node history query failed");
+      return null;
+    }
+
+    const data = await res.json() as {
+      messages: Array<{ message: string; consensus_timestamp: string }>;
+      links?: { next?: string };
+    };
+
+    for (const msg of data.messages) {
+      try {
+        const decoded = Buffer.from(msg.message, "base64").toString("utf8");
+        const parsed = JSON.parse(decoded) as Partial<FingerprintMessage>;
+        if (parsed.sha256 !== hash) continue;
+
+        events.push({
+          eventType: parsed.type === "visibility-update" ? "visibility-update" : "registration",
+          consensusTimestamp: msg.consensus_timestamp,
+          visibility: parsed.visibility ?? "public",
+          ownerAccountId: parsed.ownerAccountId,
+          registeredAt: parsed.registeredAt ?? msg.consensus_timestamp,
+          filename: parsed.filename,
+          fileSize: parsed.fileSize,
+        });
+      } catch { /* malformed message — skip */ }
+    }
+
+    nextUrl = data.links?.next ? `${MIRROR_BASE}${data.links.next}` : null;
+  }
+
+  if (events.length === 0) return null;
+
+  const currentVisibility = events[events.length - 1].visibility;
+  return { events, currentVisibility };
+}
