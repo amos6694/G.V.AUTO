@@ -86,36 +86,19 @@ router.post("/fingerprint/register", async (req, res): Promise<void> => {
   }
 
   // Step 1: check if this hash is already on-chain via Mirror Node.
-  // Private records are invisible — a duplicate upload against a private record
-  // proceeds as a fresh registration, revealing nothing about the existing record.
-  // Semi-public and public duplicates surface the original owner info.
+  // ALL registrations block re-registration — including private ones.
+  // We reveal nothing about the existing record (no owner, no visibility, no timestamp).
   try {
     const existing = await findInRegistry(topicId, hash);
-    const existingVisibility = existing?.message.visibility ?? "public";
-
-    if (existing && existingVisibility !== "private") {
-      req.log.info(
-        { hash: hash.slice(0, 16), existingVisibility },
-        "Fingerprint already registered — returning existing record"
-      );
-      const result: RegistrationResult = {
-        transactionId: `registry-topic:${topicId}@${existing.consensusTimestamp}`,
-        topicId,
-        network: "testnet",
-        explorerUrl: `https://hashscan.io/testnet/topic/${topicId}`,
-        alreadyRegistered: true,
-        originalTimestamp: existing.message.registeredAt ?? existing.message.timestamp,
-        ownerAccountId: existing.message.ownerAccountId,
-      };
-      res.json(result);
-      return;
-    }
-
     if (existing) {
       req.log.info(
         { hash: hash.slice(0, 16) },
-        "Existing record is private — registering fresh record for new uploader"
+        "Duplicate registration attempt blocked"
       );
+      res.status(409).json({
+        error: "This content already exists in the registry and cannot be registered again.",
+      });
+      return;
     }
   } catch (err) {
     req.log.warn({ err }, "Mirror Node lookup failed; proceeding with registration");
