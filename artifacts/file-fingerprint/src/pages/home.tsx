@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import {
   Upload, File, Copy, Check, RefreshCw, Lock, UserPlus, Shield,
   ExternalLink, Loader2, Search, Link2, Globe, EyeOff, Users,
-  Settings, ChevronDown, ChevronUp, Fingerprint,
+  Settings, ChevronDown, ChevronUp, ShieldCheck,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,20 @@ interface HederaRecord {
   explorerUrl: string;
   alreadyRegistered: boolean;
   originalTimestamp?: string;
+  ownerAccountId?: string;
+}
+
+/** Shape returned by GET /api/fingerprint/verify when verified: true */
+interface ExistingRecord {
+  hash: string;
+  topicId: string;
+  network: string;
+  explorerUrl?: string;
+  filename?: string;
+  fileSize?: number;
+  registeredAt?: string;
+  consensusTimestamp?: string;
+  visibility?: Visibility;
   ownerAccountId?: string;
 }
 
@@ -88,6 +102,145 @@ function DropZone({ id, label, sub, onFile }: DropZoneProps) {
       </div>
       <h3 className="text-xl font-medium mb-2">{label}</h3>
       <p className="text-muted-foreground max-w-sm">{sub}</p>
+    </div>
+  );
+}
+
+// ─── Read-only certificate for already-registered files ───────────────────────
+interface AlreadyRegisteredCardProps {
+  fileData: { name: string; size: number };
+  hash: string;
+  timestamp: string;
+  existing: ExistingRecord;
+  copied: boolean;
+  linkCopied: boolean;
+  onCopyHash: () => void;
+  onCopyLink: () => void;
+  onReset: () => void;
+}
+function AlreadyRegisteredCard({
+  fileData, hash, timestamp, existing, copied, linkCopied,
+  onCopyHash, onCopyLink, onReset,
+}: AlreadyRegisteredCardProps) {
+  const vis = existing.visibility ?? "public";
+  return (
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both">
+      <Card className="overflow-hidden border-green-200 shadow-lg">
+        {/* Header */}
+        <div className="bg-green-50 px-8 py-6 border-b flex items-start gap-4">
+          <ShieldCheck className="w-8 h-8 text-green-600 shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <p className="text-sm font-semibold tracking-wider uppercase text-green-700">Already on-chain</p>
+            <p className="text-2xl font-serif text-foreground">This file is already registered</p>
+          </div>
+        </div>
+
+        <CardContent className="p-0">
+          <div className="divide-y">
+            {/* Notice banner */}
+            <div className="px-8 py-4 bg-amber-50 border-b border-amber-100 flex gap-3">
+              <p className="text-sm text-amber-800 leading-relaxed">
+                This exact file already exists in the Hedera registry. No new record was created and no changes were made to the existing registration.
+              </p>
+            </div>
+
+            {/* Hash */}
+            <div className="p-8 space-y-4">
+              <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Digital Fingerprint</p>
+              <div className="font-mono text-xl md:text-2xl lg:text-3xl text-foreground break-all leading-tight tracking-tight select-all">
+                {hash}
+              </div>
+            </div>
+
+            {/* File metadata */}
+            <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x bg-muted/30">
+              <div className="p-6 space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">File Name</p>
+                <p className="font-medium truncate" title={fileData.name}>{fileData.name}</p>
+              </div>
+              <div className="p-6 space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">File Size</p>
+                <p className="font-mono text-sm">{formatBytes(fileData.size)}</p>
+              </div>
+              <div className="p-6 space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Hashed At</p>
+                <p className="font-mono text-sm">{new Date(timestamp).toLocaleString()}</p>
+              </div>
+            </div>
+
+            {/* On-chain record details */}
+            <div className="p-8 space-y-4">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">On-Chain Record</p>
+                <VisibilityBadge v={vis} />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {existing.ownerAccountId && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Original Owner</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-mono text-sm text-foreground">{existing.ownerAccountId}</p>
+                      <Link
+                        href={`/profile/${existing.ownerAccountId}`}
+                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        View profile <ExternalLink className="w-3 h-3" />
+                      </Link>
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Originally Registered</p>
+                  <p className="font-mono text-sm text-foreground">
+                    {existing.registeredAt ? new Date(existing.registeredAt).toLocaleString() : "—"}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Registry Topic ID</p>
+                  <p className="font-mono text-xs text-foreground">{existing.topicId}</p>
+                </div>
+                {existing.consensusTimestamp && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Consensus Timestamp</p>
+                    <p className="font-mono text-xs text-foreground">{existing.consensusTimestamp}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/8 px-2.5 py-1 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
+                  Hedera Testnet
+                </span>
+                {existing.explorerUrl && (
+                  <a href={existing.explorerUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+                    View registry on HashScan <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Actions */}
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <Button size="lg" className="w-full sm:w-auto text-base gap-2 font-medium" onClick={onCopyHash}>
+          {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+          {copied ? "Copied!" : "Copy fingerprint"}
+        </Button>
+        {vis !== "private" && (
+          <Button variant="outline" size="lg" className="w-full sm:w-auto text-base gap-2" onClick={onCopyLink}>
+            {linkCopied ? <Check className="w-5 h-5" /> : <Link2 className="w-5 h-5" />}
+            {linkCopied ? "Link copied!" : "Copy verification link"}
+          </Button>
+        )}
+        <Button variant="outline" size="lg" className="w-full sm:w-auto text-base gap-2" onClick={onReset}>
+          <RefreshCw className="w-5 h-5" /> Fingerprint another file
+        </Button>
+      </div>
     </div>
   );
 }
@@ -330,9 +483,11 @@ export default function Home() {
 
   // ── Main (public) flow ────────────────────────────────────────────────────
   const [isComputing, setIsComputing] = useState(false);
+  const [isCheckingRegistry, setIsCheckingRegistry] = useState(false);
   const [fileData, setFileData] = useState<{ name: string; size: number } | null>(null);
   const [hash, setHash] = useState<string | null>(null);
   const [timestamp, setTimestamp] = useState<string | null>(null);
+  const [existingRecord, setExistingRecord] = useState<ExistingRecord | null>(null);
   const [hederaRecord, setHederaRecord] = useState<HederaRecord | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
@@ -387,6 +542,7 @@ export default function Home() {
     setHash(null);
     setTimestamp(null);
     setHederaRecord(null);
+    setExistingRecord(null);
     setRegistrationError(null);
     setCurrentVisibility("public");
     setCopied(false);
@@ -397,9 +553,23 @@ export default function Home() {
       const { hashHex, ts } = await doHash(file);
       setHash(hashHex);
       setTimestamp(ts);
+      setIsComputing(false);
+
+      // Check if this hash already exists on-chain before showing visibility options
+      setIsCheckingRegistry(true);
+      try {
+        const res = await fetch(`/api/fingerprint/verify?hash=${encodeURIComponent(hashHex)}`);
+        if (res.ok) {
+          const data = await res.json() as { verified: boolean } & ExistingRecord;
+          if (data.verified) {
+            setExistingRecord(data);
+          }
+        }
+        // If not verified or error → existingRecord stays null → show visibility choice
+      } catch { /* network error — fall through to normal flow */ }
+      finally { setIsCheckingRegistry(false); }
     } catch {
       toast({ title: "Error reading file", description: "Could not compute fingerprint.", variant: "destructive" });
-    } finally {
       setIsComputing(false);
     }
   }, [toast]);
@@ -426,6 +596,7 @@ export default function Home() {
     setHash(null);
     setTimestamp(null);
     setHederaRecord(null);
+    setExistingRecord(null);
     setRegistrationError(null);
     setCurrentVisibility("public");
     setCopied(false);
@@ -556,8 +727,35 @@ export default function Home() {
           </Card>
         )}
 
+        {isCheckingRegistry && (
+          <Card className="w-full">
+            <CardContent className="p-12 flex flex-col items-center justify-center text-center space-y-6">
+              <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+              <div className="space-y-2">
+                <h3 className="text-xl font-medium animate-pulse">Checking Hedera registry…</h3>
+                <p className="text-muted-foreground">Looking up this fingerprint on the blockchain.</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── Already registered: read-only certificate ──────────────────────── */}
+        {hash && fileData && timestamp && existingRecord && !isCheckingRegistry && (
+          <AlreadyRegisteredCard
+            fileData={fileData}
+            hash={hash}
+            timestamp={timestamp}
+            existing={existingRecord}
+            copied={copied}
+            linkCopied={linkCopied}
+            onCopyHash={handleCopyHash}
+            onCopyLink={handleCopyLink}
+            onReset={handleMainReset}
+          />
+        )}
+
         {/* ── Post-hash visibility choice (before registration) ─────────────── */}
-        {hash && fileData && timestamp && !hederaRecord && !isRegistering && !registrationError && (
+        {hash && fileData && timestamp && !existingRecord && !isCheckingRegistry && !hederaRecord && !isRegistering && !registrationError && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Mini certificate preview — just hash + file info */}
             <Card className="overflow-hidden border-border/50 shadow-lg">
