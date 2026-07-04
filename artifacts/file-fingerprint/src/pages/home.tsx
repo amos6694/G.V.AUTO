@@ -457,10 +457,11 @@ export default function Home() {
   const [hash, setHash] = useState<string | null>(null);
   const [timestamp, setTimestamp] = useState<string | null>(null);
   const [existingRecord, setExistingRecord] = useState<ExistingRecord | null>(null);
+  const [showVisibilityChoice, setShowVisibilityChoice] = useState(false);
+  const [currentVisibility, setCurrentVisibility] = useState<Visibility>("public");
   const [hederaRecord, setHederaRecord] = useState<HederaRecord | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
-  const [currentVisibility] = useState<Visibility>("public");
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [permissions, setPermissions] = useState<Permission[]>([]);
@@ -501,11 +502,11 @@ export default function Home() {
     return res.json() as Promise<HederaRecord>;
   }
 
-  async function doRegister(hashHex: string, fd: { name: string; size: number }, ts: string) {
+  async function doRegister(hashHex: string, fd: { name: string; size: number }, ts: string, vis: Visibility) {
     setIsRegistering(true);
     setRegistrationError(null);
     try {
-      const rec = await registerOnHedera(hashHex, fd, ts, "public");
+      const rec = await registerOnHedera(hashHex, fd, ts, vis);
       setHederaRecord(rec);
       // Store account ID so the profile page can detect ownership
       if (rec.ownerAccountId) {
@@ -528,6 +529,8 @@ export default function Home() {
     setTimestamp(null);
     setHederaRecord(null);
     setExistingRecord(null);
+    setShowVisibilityChoice(false);
+    setCurrentVisibility("public");
     setRegistrationError(null);
     setCopied(false);
     setLinkCopied(false);
@@ -551,12 +554,12 @@ export default function Home() {
             alreadyExists = true;
           }
         }
-      } catch { /* network error — proceed to register */ }
+      } catch { /* network error — proceed to ask visibility */ }
       finally { setIsCheckingRegistry(false); }
 
-      // Only register if this is a new hash
+      // New file: ask the user how to register it
       if (!alreadyExists) {
-        await doRegister(hashHex, { name: file.name, size: file.size }, ts);
+        setShowVisibilityChoice(true);
       }
     } catch {
       toast({ title: "Error reading file", description: "Could not compute fingerprint.", variant: "destructive" });
@@ -566,10 +569,18 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toast]);
 
-  const handleRetry = useCallback(() => {
-    if (hash && fileData && timestamp) doRegister(hash, fileData, timestamp);
+  const handleRegisterChoice = useCallback(async (vis: Visibility) => {
+    if (!hash || !fileData || !timestamp) return;
+    setCurrentVisibility(vis);
+    setShowVisibilityChoice(false);
+    await doRegister(hash, fileData, timestamp, vis);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hash, fileData, timestamp]);
+
+  const handleRetry = useCallback(() => {
+    if (hash && fileData && timestamp) doRegister(hash, fileData, timestamp, currentVisibility);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hash, fileData, timestamp, currentVisibility]);
 
   const handleMainReset = useCallback(() => {
     setFileData(null);
@@ -577,6 +588,8 @@ export default function Home() {
     setTimestamp(null);
     setHederaRecord(null);
     setExistingRecord(null);
+    setShowVisibilityChoice(false);
+    setCurrentVisibility("public");
     setRegistrationError(null);
     setCopied(false);
     setLinkCopied(false);
@@ -718,6 +731,76 @@ export default function Home() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* ── Visibility choice ────────────────────────────────────────────── */}
+        {showVisibilityChoice && hash && fileData && timestamp && !isProcessing && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Hash preview */}
+            <Card className="overflow-hidden">
+              <div className="bg-muted px-6 py-4 border-b flex items-center gap-3">
+                <File className="w-5 h-5 text-primary opacity-50" />
+                <div className="min-w-0">
+                  <p className="font-medium truncate" title={fileData.name}>{fileData.name}</p>
+                  <p className="text-xs text-muted-foreground">{formatBytes(fileData.size)}</p>
+                </div>
+              </div>
+              <CardContent className="p-6">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">SHA-256 Fingerprint</p>
+                <p className="font-mono text-sm text-foreground break-all select-all leading-relaxed">{hash}</p>
+              </CardContent>
+            </Card>
+
+            {/* Visibility picker */}
+            <div className="space-y-4">
+              <div className="text-center space-y-1">
+                <h2 className="text-xl font-serif text-foreground">How should this be registered?</h2>
+                <p className="text-sm text-muted-foreground">Choose the visibility for this fingerprint on the blockchain. You can change it later from your profile.</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Public */}
+                <button
+                  onClick={() => handleRegisterChoice("public")}
+                  className="group text-left rounded-xl border-2 border-border hover:border-emerald-400 hover:bg-emerald-50/50 transition-all duration-200 p-6 space-y-3 cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                      <Globe className="w-3 h-3" /> Public
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    Freely discoverable by anyone. Visible on verify lookups and your public profile.
+                  </p>
+                  <p className="text-xs font-medium text-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity">Register as Public →</p>
+                </button>
+
+                {/* Semi-Public */}
+                <button
+                  onClick={() => handleRegisterChoice("semi-public")}
+                  className="group text-left rounded-xl border-2 border-border hover:border-blue-400 hover:bg-blue-50/50 transition-all duration-200 p-6 space-y-3 cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full">
+                      <Users className="w-3 h-3" /> Semi-Public
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    Verifiable by hash, but your account ID and timestamp are always attached to every lookup.
+                  </p>
+                  <p className="text-xs font-medium text-blue-700 opacity-0 group-hover:opacity-100 transition-opacity">Register as Semi-Public →</p>
+                </button>
+              </div>
+              <p className="text-center text-xs text-muted-foreground">
+                Want a fully private record?{" "}
+                <button
+                  className="text-primary hover:underline font-medium"
+                  onClick={() => { setShowVisibilityChoice(false); handleMainReset(); setShowPrivate(true); }}
+                >
+                  Use the Private Registration section below.
+                </button>
+              </p>
+            </div>
+          </div>
         )}
 
         {/* ── Registration error ────────────────────────────────────────────── */}
