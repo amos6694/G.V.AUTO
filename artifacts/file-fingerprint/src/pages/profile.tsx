@@ -1,7 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Link, useParams } from "wouter";
-import { Lock, Globe, Users, ExternalLink, Search, FileText, ShieldCheck } from "lucide-react";
+import {
+  Lock, Globe, Users, ExternalLink, Search, FileText, ShieldCheck,
+  Settings, EyeOff, ChevronDown, ChevronUp,
+} from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { PrivacyModal } from "@/components/PrivacyModal";
 
 function formatBytes(bytes: number, decimals = 2) {
   if (!+bytes) return "0 Bytes";
@@ -12,13 +18,15 @@ function formatBytes(bytes: number, decimals = 2) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
+type Visibility = "public" | "semi-public" | "private";
+
 interface ProfileRecord {
   consensusTimestamp: string;
   sha256: string;
   filename: string;
   fileSize: number;
   registeredAt: string;
-  visibility: "public" | "semi-public";
+  visibility: Visibility;
   ownerAccountId?: string;
 }
 
@@ -30,30 +38,42 @@ interface ProfileResponse {
   records: ProfileRecord[];
 }
 
-function VisibilityBadge({ visibility }: { visibility: "public" | "semi-public" }) {
-  if (visibility === "semi-public") {
+function VisibilityBadge({ visibility }: { visibility: Visibility }) {
+  if (visibility === "private")
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-        <Users className="w-3 h-3" />
-        Semi-Public
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">
+        <EyeOff className="w-3 h-3" /> Private
       </span>
     );
-  }
+  if (visibility === "semi-public")
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+        <Users className="w-3 h-3" /> Semi-Public
+      </span>
+    );
   return (
     <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-      <Globe className="w-3 h-3" />
-      Public
+      <Globe className="w-3 h-3" /> Public
     </span>
   );
 }
 
 export default function Profile() {
   const { accountId } = useParams<{ accountId: string }>();
+  const { toast } = useToast();
   const [data, setData] = useState<ProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Owner detection: compare the URL account with what was stored at registration time
+  const myAccountId = localStorage.getItem("fp_my_account_id") ?? null;
+  const isOwner = !!myAccountId && !!accountId && myAccountId === accountId;
+
+  // Visibility settings panel
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [privacyTarget, setPrivacyTarget] = useState<ProfileRecord | null>(null);
+
+  const fetchProfile = useCallback(() => {
     if (!accountId) return;
     setLoading(true);
     setError(null);
@@ -66,6 +86,22 @@ export default function Profile() {
       .catch((e) => { setError(e.message); setLoading(false); });
   }, [accountId]);
 
+  useEffect(() => { fetchProfile(); }, [fetchProfile]);
+
+  function handleVisibilitySuccess(record: ProfileRecord, newVis: Visibility) {
+    setPrivacyTarget(null);
+    toast({ title: "Visibility updated", description: `"${record.filename}" is now ${newVis}.` });
+    // If the record became private it will disappear from the public list; refresh
+    if (newVis === "private") {
+      setData(prev => prev ? { ...prev, records: prev.records.filter(r => r.sha256 !== record.sha256) } : prev);
+    } else {
+      setData(prev => prev ? {
+        ...prev,
+        records: prev.records.map(r => r.sha256 === record.sha256 ? { ...r, visibility: newVis } : r),
+      } : prev);
+    }
+  }
+
   const publicCount = data?.records.filter((r) => r.visibility === "public").length ?? 0;
   const semiPublicCount = data?.records.filter((r) => r.visibility === "semi-public").length ?? 0;
 
@@ -74,12 +110,10 @@ export default function Profile() {
       {/* Nav */}
       <div className="w-full max-w-3xl flex items-center justify-between mb-8">
         <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors font-medium">
-          <Lock className="w-4 h-4" />
-          Fingerprint a file
+          <Lock className="w-4 h-4" /> Fingerprint a file
         </Link>
         <Link href="/verify" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors font-medium">
-          <Search className="w-4 h-4" />
-          Verify a fingerprint
+          <Search className="w-4 h-4" /> Verify a fingerprint
         </Link>
       </div>
 
@@ -89,11 +123,14 @@ export default function Profile() {
           <div className="mx-auto w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
             <FileText className="w-8 h-8 text-primary" />
           </div>
-          <h1 className="text-4xl md:text-5xl font-serif tracking-tight text-foreground">Public Profile</h1>
+          <h1 className="text-4xl md:text-5xl font-serif tracking-tight text-foreground">
+            {isOwner ? "My Profile" : "Public Profile"}
+          </h1>
           <p className="font-mono text-sm text-muted-foreground break-all">{accountId}</p>
           <p className="text-base text-muted-foreground max-w-xl mx-auto">
-            Public and semi-public fingerprint registrations by this account.
-            Private registrations are not shown.
+            {isOwner
+              ? "Your public and semi-public fingerprint registrations. Use the Visibility Settings panel below to change visibility for any record."
+              : "Public and semi-public fingerprint registrations by this account. Private registrations are not shown."}
           </p>
         </div>
 
@@ -137,6 +174,63 @@ export default function Profile() {
           </div>
         )}
 
+        {/* ── Owner-only: Visibility Settings ─────────────────────────────── */}
+        {isOwner && data && !loading && data.records.length > 0 && (
+          <div className="rounded-xl border border-border overflow-hidden">
+            <button
+              onClick={() => setSettingsOpen(v => !v)}
+              className="w-full flex items-center justify-between px-6 py-4 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <Settings className="w-4 h-4 text-primary" />
+                </div>
+                <div>
+                  <p className="font-medium text-foreground text-sm">Visibility Settings</p>
+                  <p className="text-xs text-muted-foreground">
+                    Change who can see each of your registered fingerprints. Requires identity verification.
+                  </p>
+                </div>
+              </div>
+              {settingsOpen
+                ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" />
+                : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
+            </button>
+
+            {settingsOpen && (
+              <div className="border-t p-6 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Select a fingerprint to change its visibility. You will be asked to verify your identity with a PIN or biometric before any change is applied.
+                </p>
+                {data.records.map(record => (
+                  <div
+                    key={record.consensusTimestamp}
+                    className="flex items-center justify-between gap-3 rounded-lg border bg-background p-4"
+                  >
+                    <div className="min-w-0 space-y-1 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <VisibilityBadge visibility={record.visibility} />
+                        <span className="font-medium text-sm truncate" title={record.filename}>{record.filename}</span>
+                        <span className="text-xs text-muted-foreground">{formatBytes(record.fileSize)}</span>
+                      </div>
+                      <p className="font-mono text-xs text-muted-foreground truncate">{record.sha256}</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 gap-1.5"
+                      onClick={() => setPrivacyTarget(record)}
+                    >
+                      <Settings className="w-3.5 h-3.5" />
+                      Change
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Empty */}
         {data && !loading && data.records.length === 0 && (
           <Card>
@@ -150,7 +244,7 @@ export default function Profile() {
           </Card>
         )}
 
-        {/* Records grid */}
+        {/* Records list */}
         {data && !loading && data.records.length > 0 && (
           <div className="space-y-3">
             {data.records.map((record) => (
@@ -211,6 +305,17 @@ export default function Profile() {
           </div>
         )}
       </div>
+
+      {/* ── Privacy Modal (owner only, triggered from settings panel) ────── */}
+      {privacyTarget && (
+        <PrivacyModal
+          hash={privacyTarget.sha256}
+          filename={privacyTarget.filename}
+          currentVisibility={privacyTarget.visibility}
+          onSuccess={(newVis) => handleVisibilitySuccess(privacyTarget, newVis)}
+          onClose={() => setPrivacyTarget(null)}
+        />
+      )}
     </div>
   );
 }

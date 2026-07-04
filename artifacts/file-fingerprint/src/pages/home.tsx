@@ -3,13 +3,12 @@ import { Link } from "wouter";
 import {
   Upload, File, Copy, Check, RefreshCw, Lock, UserPlus, Shield,
   ExternalLink, Loader2, Search, Link2, Globe, EyeOff, Users,
-  Settings, ChevronDown, ChevronUp, ShieldCheck,
+  ChevronDown, ChevronUp, ShieldCheck,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { PrivacyModal } from "@/components/PrivacyModal";
 
 type Visibility = "private" | "semi-public" | "public";
 
@@ -32,7 +31,6 @@ interface HederaRecord {
   ownerAccountId?: string;
 }
 
-/** Shape returned by GET /api/fingerprint/verify when verified: true */
 interface ExistingRecord {
   hash: string;
   topicId: string;
@@ -72,7 +70,7 @@ function VisibilityBadge({ v }: { v: Visibility }) {
   );
 }
 
-// ─── Drop zone (reusable) ─────────────────────────────────────────────────────
+// ─── Drop zone ────────────────────────────────────────────────────────────────
 interface DropZoneProps {
   id: string;
   label: string;
@@ -126,7 +124,6 @@ function AlreadyRegisteredCard({
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both">
       <Card className="overflow-hidden border-green-200 shadow-lg">
-        {/* Header */}
         <div className="bg-green-50 px-8 py-6 border-b flex items-start gap-4">
           <ShieldCheck className="w-8 h-8 text-green-600 shrink-0 mt-0.5" />
           <div className="space-y-0.5">
@@ -137,14 +134,12 @@ function AlreadyRegisteredCard({
 
         <CardContent className="p-0">
           <div className="divide-y">
-            {/* Notice banner */}
-            <div className="px-8 py-4 bg-amber-50 border-b border-amber-100 flex gap-3">
+            <div className="px-8 py-4 bg-amber-50 border-b border-amber-100">
               <p className="text-sm text-amber-800 leading-relaxed">
                 This exact file already exists in the Hedera registry. No new record was created and no changes were made to the existing registration.
               </p>
             </div>
 
-            {/* Hash */}
             <div className="p-8 space-y-4">
               <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Digital Fingerprint</p>
               <div className="font-mono text-xl md:text-2xl lg:text-3xl text-foreground break-all leading-tight tracking-tight select-all">
@@ -152,7 +147,6 @@ function AlreadyRegisteredCard({
               </div>
             </div>
 
-            {/* File metadata */}
             <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x bg-muted/30">
               <div className="p-6 space-y-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">File Name</p>
@@ -168,13 +162,11 @@ function AlreadyRegisteredCard({
               </div>
             </div>
 
-            {/* On-chain record details */}
             <div className="p-8 space-y-4">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">On-Chain Record</p>
                 <VisibilityBadge v={vis} />
               </div>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {existing.ownerAccountId && (
                   <div className="space-y-1">
@@ -207,7 +199,6 @@ function AlreadyRegisteredCard({
                   </div>
                 )}
               </div>
-
               <div className="flex items-center gap-2 pt-1">
                 <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/8 px-2.5 py-1 rounded-full">
                   <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
@@ -225,7 +216,6 @@ function AlreadyRegisteredCard({
         </CardContent>
       </Card>
 
-      {/* Actions */}
       <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
         <Button size="lg" className="w-full sm:w-auto text-base gap-2 font-medium" onClick={onCopyHash}>
           {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
@@ -237,6 +227,13 @@ function AlreadyRegisteredCard({
             {linkCopied ? "Link copied!" : "Copy verification link"}
           </Button>
         )}
+        {existing.ownerAccountId && (
+          <Button variant="outline" size="lg" className="w-full sm:w-auto text-base gap-2" asChild>
+            <Link href={`/profile/${existing.ownerAccountId}`}>
+              View owner profile <ExternalLink className="w-4 h-4" />
+            </Link>
+          </Button>
+        )}
         <Button variant="outline" size="lg" className="w-full sm:w-auto text-base gap-2" onClick={onReset}>
           <RefreshCw className="w-5 h-5" /> Fingerprint another file
         </Button>
@@ -245,7 +242,7 @@ function AlreadyRegisteredCard({
   );
 }
 
-// ─── Inline certificate ───────────────────────────────────────────────────────
+// ─── Registration certificate (new record) ────────────────────────────────────
 interface CertProps {
   fileData: { name: string; size: number };
   hash: string;
@@ -265,42 +262,25 @@ interface CertProps {
   onGrant: () => void;
   onGrantKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onGranteeChange: (v: string) => void;
-  onPrivacySettings: () => void;
-  showPrivacySettings: boolean;
 }
 function Certificate({
   fileData, hash, timestamp, visibility, hederaRecord, isRegistering,
   registrationError, copied, linkCopied, permissions, granteeInput,
-  onCopyHash, onCopyLink, onReset, onRetry, onGrant, onGrantKeyDown,
-  onGranteeChange, onPrivacySettings, showPrivacySettings,
+  onCopyHash, onCopyLink, onReset, onRetry, onGrant, onGrantKeyDown, onGranteeChange,
 }: CertProps) {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both">
       <Card className="overflow-hidden border-border/50 shadow-lg" data-testid="certificate-block">
-        {/* Header */}
         <div className="bg-muted px-8 py-6 border-b flex items-start justify-between">
           <div className="space-y-1">
             <h2 className="text-sm font-semibold tracking-wider text-muted-foreground uppercase">Certificate of Fingerprint</h2>
             <p className="text-2xl font-serif text-foreground">SHA-256 Integrity Record</p>
           </div>
-          <div className="flex items-center gap-2">
-            {showPrivacySettings && hederaRecord && (
-              <button
-                onClick={onPrivacySettings}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-primary transition-colors border border-border rounded-lg px-3 py-1.5 hover:border-primary/40"
-                title="Change visibility"
-              >
-                <Settings className="w-3.5 h-3.5" />
-                Privacy Settings
-              </button>
-            )}
-            <File className="w-8 h-8 text-primary opacity-20" />
-          </div>
+          <File className="w-8 h-8 text-primary opacity-20" />
         </div>
 
         <CardContent className="p-0">
           <div className="divide-y">
-            {/* Hash */}
             <div className="p-8 space-y-4">
               <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Digital Fingerprint</p>
               <div className="font-mono text-xl md:text-2xl lg:text-3xl text-foreground break-all leading-tight tracking-tight select-all" data-testid="fingerprint-display">
@@ -308,7 +288,6 @@ function Certificate({
               </div>
             </div>
 
-            {/* File metadata */}
             <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x bg-muted/30">
               <div className="p-6 space-y-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">File Name</p>
@@ -324,18 +303,10 @@ function Certificate({
               </div>
             </div>
 
-            {/* Blockchain record */}
             <div className="p-8 space-y-4" data-testid="hedera-record">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Blockchain Record</p>
-                <div className="flex items-center gap-2">
-                  <VisibilityBadge v={visibility} />
-                  {hederaRecord?.alreadyRegistered && (
-                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full" data-testid="already-registered-badge">
-                      Previously registered
-                    </span>
-                  )}
-                </div>
+                <VisibilityBadge v={visibility} />
               </div>
 
               {isRegistering && (
@@ -356,18 +327,9 @@ function Certificate({
 
               {hederaRecord && !isRegistering && (
                 <div className="space-y-4">
-                  {hederaRecord.alreadyRegistered && hederaRecord.originalTimestamp && (
-                    <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-                      This fingerprint was first registered on{" "}
-                      <span className="font-medium">{new Date(hederaRecord.originalTimestamp).toLocaleString()}</span>.
-                      No new blockchain record was created.
-                    </div>
-                  )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                        {hederaRecord.alreadyRegistered ? "Original Record Reference" : "Transaction ID"}
-                      </p>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Transaction ID</p>
                       <p className="font-mono text-xs break-all text-foreground leading-relaxed" data-testid="hedera-transaction-id">
                         {hederaRecord.transactionId}
                       </p>
@@ -379,16 +341,14 @@ function Certificate({
                   </div>
                   {hederaRecord.ownerAccountId && visibility !== "private" && (
                     <div className="rounded-lg bg-muted/40 border px-4 py-3 space-y-1">
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                        {visibility === "semi-public" ? "Owner Account (always attached)" : "Owner Account"}
-                      </p>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Owner Account</p>
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <p className="font-mono text-sm text-foreground">{hederaRecord.ownerAccountId}</p>
                         <Link
                           href={`/profile/${hederaRecord.ownerAccountId}`}
                           className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
                         >
-                          View public profile <ExternalLink className="w-3 h-3" />
+                          View profile <ExternalLink className="w-3 h-3" />
                         </Link>
                       </div>
                     </div>
@@ -403,11 +363,22 @@ function Certificate({
                       View registry on HashScan <ExternalLink className="w-3 h-3" />
                     </a>
                   </div>
+                  {hederaRecord.ownerAccountId && (
+                    <p className="text-xs text-muted-foreground">
+                      To change visibility, visit{" "}
+                      <Link
+                        href={`/profile/${hederaRecord.ownerAccountId}`}
+                        className="text-primary hover:underline font-medium"
+                      >
+                        your profile
+                      </Link>
+                      {" "}and use the Visibility Settings panel.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Authorized viewers */}
             {permissions.length > 0 && (
               <div className="p-8 space-y-4" data-testid="permissions-list">
                 <div className="flex items-center gap-2">
@@ -430,7 +401,6 @@ function Certificate({
         </CardContent>
       </Card>
 
-      {/* Grant access */}
       <div className="rounded-xl border border-border bg-muted/20 p-6 space-y-4" data-testid="grant-access-section">
         <div className="space-y-1">
           <h3 className="font-medium text-foreground flex items-center gap-2">
@@ -457,7 +427,6 @@ function Certificate({
         </div>
       </div>
 
-      {/* Actions */}
       <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
         <Button size="lg" className="w-full sm:w-auto text-base gap-2 font-medium" onClick={onCopyHash} data-testid="copy-button">
           {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
@@ -481,7 +450,7 @@ function Certificate({
 export default function Home() {
   const { toast } = useToast();
 
-  // ── Main (public) flow ────────────────────────────────────────────────────
+  // ── Main flow ─────────────────────────────────────────────────────────────
   const [isComputing, setIsComputing] = useState(false);
   const [isCheckingRegistry, setIsCheckingRegistry] = useState(false);
   const [fileData, setFileData] = useState<{ name: string; size: number } | null>(null);
@@ -491,7 +460,7 @@ export default function Home() {
   const [hederaRecord, setHederaRecord] = useState<HederaRecord | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
-  const [currentVisibility, setCurrentVisibility] = useState<Visibility>("public");
+  const [currentVisibility] = useState<Visibility>("public");
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [permissions, setPermissions] = useState<Permission[]>([]);
@@ -507,9 +476,6 @@ export default function Home() {
   const [isRegisteringPrivate, setIsRegisteringPrivate] = useState(false);
   const [privateError, setPrivateError] = useState<string | null>(null);
   const [privateCopied, setPrivateCopied] = useState(false);
-
-  // ── Privacy modal ─────────────────────────────────────────────────────────
-  const [privacyModal, setPrivacyModal] = useState(false);
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
   async function doHash(file: File): Promise<{ hashHex: string; ts: string }> {
@@ -535,6 +501,25 @@ export default function Home() {
     return res.json() as Promise<HederaRecord>;
   }
 
+  async function doRegister(hashHex: string, fd: { name: string; size: number }, ts: string) {
+    setIsRegistering(true);
+    setRegistrationError(null);
+    try {
+      const rec = await registerOnHedera(hashHex, fd, ts, "public");
+      setHederaRecord(rec);
+      // Store account ID so the profile page can detect ownership
+      if (rec.ownerAccountId) {
+        localStorage.setItem("fp_my_account_id", rec.ownerAccountId);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setRegistrationError(msg);
+      toast({ title: "Blockchain registration failed", description: msg, variant: "destructive" });
+    } finally {
+      setIsRegistering(false);
+    }
+  }
+
   // ─── Main flow handlers ────────────────────────────────────────────────────
   const handleMainFile = useCallback(async (file: File) => {
     setIsComputing(true);
@@ -544,7 +529,6 @@ export default function Home() {
     setHederaRecord(null);
     setExistingRecord(null);
     setRegistrationError(null);
-    setCurrentVisibility("public");
     setCopied(false);
     setLinkCopied(false);
     setPermissions([]);
@@ -555,41 +539,37 @@ export default function Home() {
       setTimestamp(ts);
       setIsComputing(false);
 
-      // Check if this hash already exists on-chain before showing visibility options
+      // Check if already registered before writing anything
       setIsCheckingRegistry(true);
+      let alreadyExists = false;
       try {
         const res = await fetch(`/api/fingerprint/verify?hash=${encodeURIComponent(hashHex)}`);
         if (res.ok) {
           const data = await res.json() as { verified: boolean } & ExistingRecord;
           if (data.verified) {
             setExistingRecord(data);
+            alreadyExists = true;
           }
         }
-        // If not verified or error → existingRecord stays null → show visibility choice
-      } catch { /* network error — fall through to normal flow */ }
+      } catch { /* network error — proceed to register */ }
       finally { setIsCheckingRegistry(false); }
+
+      // Only register if this is a new hash
+      if (!alreadyExists) {
+        await doRegister(hashHex, { name: file.name, size: file.size }, ts);
+      }
     } catch {
       toast({ title: "Error reading file", description: "Could not compute fingerprint.", variant: "destructive" });
       setIsComputing(false);
+      setIsCheckingRegistry(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toast]);
 
-  const handleRegisterChoice = useCallback(async (vis: "public" | "semi-public") => {
-    if (!hash || !fileData || !timestamp) return;
-    setIsRegistering(true);
-    setCurrentVisibility(vis);
-    setRegistrationError(null);
-    try {
-      const rec = await registerOnHedera(hash, fileData, timestamp, vis);
-      setHederaRecord(rec);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      setRegistrationError(msg);
-      toast({ title: "Blockchain registration failed", description: msg, variant: "destructive" });
-    } finally {
-      setIsRegistering(false);
-    }
-  }, [hash, fileData, timestamp, toast]);
+  const handleRetry = useCallback(() => {
+    if (hash && fileData && timestamp) doRegister(hash, fileData, timestamp);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hash, fileData, timestamp]);
 
   const handleMainReset = useCallback(() => {
     setFileData(null);
@@ -598,7 +578,6 @@ export default function Home() {
     setHederaRecord(null);
     setExistingRecord(null);
     setRegistrationError(null);
-    setCurrentVisibility("public");
     setCopied(false);
     setLinkCopied(false);
     setPermissions([]);
@@ -633,10 +612,6 @@ export default function Home() {
     if (e.key === "Enter") handleGrant();
   }, [handleGrant]);
 
-  const handleRetryMain = useCallback(() => {
-    if (hash && fileData && timestamp) handleRegisterChoice(currentVisibility as "public" | "semi-public");
-  }, [hash, fileData, timestamp, currentVisibility, handleRegisterChoice]);
-
   // ─── Private flow handlers ─────────────────────────────────────────────────
   const handlePrivateFile = useCallback(async (file: File) => {
     setIsComputingPrivate(true);
@@ -654,6 +629,9 @@ export default function Home() {
       setIsRegisteringPrivate(true);
       const rec = await registerOnHedera(hashHex, { name: file.name, size: file.size }, ts, "private");
       setPrivateHederaRecord(rec);
+      if (rec.ownerAccountId) {
+        localStorage.setItem("fp_my_account_id", rec.ownerAccountId);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       setPrivateError(msg);
@@ -681,6 +659,8 @@ export default function Home() {
     setTimeout(() => setPrivateCopied(false), 2000);
   }, [privateHash, toast]);
 
+  const isProcessing = isComputing || isCheckingRegistry || isRegistering;
+
   return (
     <div className="min-h-screen w-full bg-background flex flex-col items-center p-6 md:p-12">
 
@@ -705,8 +685,8 @@ export default function Home() {
           </p>
         </div>
 
-        {/* ── Main (public) upload area ────────────────────────────────────── */}
-        {!fileData && !isComputing && (
+        {/* ── Drop zone ────────────────────────────────────────────────────── */}
+        {!fileData && !isProcessing && (
           <DropZone
             id="main-file"
             label="Select a file to fingerprint"
@@ -715,31 +695,43 @@ export default function Home() {
           />
         )}
 
-        {isComputing && (
+        {/* ── Processing spinner ────────────────────────────────────────────── */}
+        {isProcessing && !existingRecord && !hederaRecord && !registrationError && (
           <Card className="w-full">
             <CardContent className="p-12 flex flex-col items-center justify-center text-center space-y-6">
               <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
               <div className="space-y-2">
-                <h3 className="text-xl font-medium animate-pulse">Computing SHA-256 Hash</h3>
-                <p className="text-muted-foreground">Reading file and generating cryptographic fingerprint…</p>
+                <h3 className="text-xl font-medium animate-pulse">
+                  {isComputing
+                    ? "Computing SHA-256 Hash"
+                    : isCheckingRegistry
+                    ? "Checking Hedera Registry…"
+                    : "Registering on Hedera Testnet…"}
+                </h3>
+                <p className="text-muted-foreground">
+                  {isComputing
+                    ? "Reading file and generating cryptographic fingerprint…"
+                    : isCheckingRegistry
+                    ? "Looking up this fingerprint on the blockchain."
+                    : "Submitting your fingerprint to the permanent ledger."}
+                </p>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {isCheckingRegistry && (
+        {/* ── Registration error ────────────────────────────────────────────── */}
+        {registrationError && !isRegistering && !hederaRecord && fileData && (
           <Card className="w-full">
             <CardContent className="p-12 flex flex-col items-center justify-center text-center space-y-6">
-              <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
-              <div className="space-y-2">
-                <h3 className="text-xl font-medium animate-pulse">Checking Hedera registry…</h3>
-                <p className="text-muted-foreground">Looking up this fingerprint on the blockchain.</p>
-              </div>
+              <p className="text-sm text-destructive">{registrationError}</p>
+              <Button variant="outline" onClick={handleRetry}>Retry registration</Button>
+              <Button variant="ghost" size="sm" onClick={handleMainReset}>Choose a different file</Button>
             </CardContent>
           </Card>
         )}
 
-        {/* ── Already registered: read-only certificate ──────────────────────── */}
+        {/* ── Already registered: read-only certificate ────────────────────── */}
         {hash && fileData && timestamp && existingRecord && !isCheckingRegistry && (
           <AlreadyRegisteredCard
             fileData={fileData}
@@ -754,113 +746,7 @@ export default function Home() {
           />
         )}
 
-        {/* ── Post-hash visibility choice (before registration) ─────────────── */}
-        {hash && fileData && timestamp && !existingRecord && !isCheckingRegistry && !hederaRecord && !isRegistering && !registrationError && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Mini certificate preview — just hash + file info */}
-            <Card className="overflow-hidden border-border/50 shadow-lg">
-              <div className="bg-muted px-8 py-6 border-b flex items-start justify-between">
-                <div className="space-y-1">
-                  <h2 className="text-sm font-semibold tracking-wider text-muted-foreground uppercase">Fingerprint Ready</h2>
-                  <p className="text-2xl font-serif text-foreground">{fileData.name}</p>
-                </div>
-                <File className="w-8 h-8 text-primary opacity-20" />
-              </div>
-              <CardContent className="p-0">
-                <div className="p-8 space-y-4">
-                  <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">Digital Fingerprint</p>
-                  <div className="font-mono text-base md:text-lg text-foreground break-all leading-tight tracking-tight select-all">
-                    {hash}
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 divide-x bg-muted/30 border-t">
-                  <div className="p-4 space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">File Size</p>
-                    <p className="font-mono text-sm">{formatBytes(fileData.size)}</p>
-                  </div>
-                  <div className="p-4 space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Hashed At</p>
-                    <p className="font-mono text-sm">{new Date(timestamp).toLocaleString()}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Visibility choice */}
-            <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-              <div className="space-y-1">
-                <h3 className="font-semibold text-foreground">How should this be registered?</h3>
-                <p className="text-sm text-muted-foreground">Choose how this fingerprint appears on Hedera. You can change this later at any time.</p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  onClick={() => handleRegisterChoice("public")}
-                  className="text-left rounded-lg border border-border hover:border-emerald-400 hover:bg-emerald-50/50 p-4 transition-all group"
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                      <Globe className="w-3 h-3" /> Public
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Freely discoverable. Anyone can verify this fingerprint. Listed on your public profile.</p>
-                </button>
-                <button
-                  onClick={() => handleRegisterChoice("semi-public")}
-                  className="text-left rounded-lg border border-border hover:border-blue-400 hover:bg-blue-50/50 p-4 transition-all group"
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-                      <Users className="w-3 h-3" /> Semi-Public
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Shareable by others, but your account ID and timestamp are permanently attached to every copy.</p>
-                </button>
-              </div>
-              <p className="text-xs text-muted-foreground text-center">
-                Want full privacy?{" "}
-                <button
-                  onClick={() => { handleMainReset(); setShowPrivate(true); }}
-                  className="text-primary hover:underline font-medium"
-                >
-                  Use the private registration section below.
-                </button>
-              </p>
-            </div>
-
-            <div className="flex justify-center">
-              <Button variant="ghost" size="sm" onClick={handleMainReset} className="text-muted-foreground gap-2">
-                <RefreshCw className="w-4 h-4" /> Choose a different file
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Registering spinner (between choice and full certificate) */}
-        {hash && fileData && (isRegistering || (registrationError && !hederaRecord)) && (
-          <div className="space-y-6 animate-in fade-in duration-300">
-            <Card className="w-full">
-              <CardContent className="p-12 flex flex-col items-center justify-center text-center space-y-6">
-                {isRegistering ? (
-                  <>
-                    <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
-                    <div className="space-y-2">
-                      <h3 className="text-xl font-medium">Registering on Hedera Testnet…</h3>
-                      <p className="text-muted-foreground">Submitting your fingerprint to the blockchain.</p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm text-destructive">{registrationError}</p>
-                    <Button variant="outline" onClick={handleRetryMain}>Retry registration</Button>
-                    <Button variant="ghost" size="sm" onClick={handleMainReset}>Choose a different file</Button>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {/* Full certificate — shown after successful registration */}
+        {/* ── New registration certificate ──────────────────────────────────── */}
         {hash && fileData && timestamp && hederaRecord && (
           <Certificate
             fileData={fileData}
@@ -877,12 +763,10 @@ export default function Home() {
             onCopyHash={handleCopyHash}
             onCopyLink={handleCopyLink}
             onReset={handleMainReset}
-            onRetry={handleRetryMain}
+            onRetry={handleRetry}
             onGrant={handleGrant}
             onGrantKeyDown={handleGrantKeyDown}
             onGranteeChange={setGranteeInput}
-            onPrivacySettings={() => setPrivacyModal(true)}
-            showPrivacySettings
           />
         )}
 
@@ -908,7 +792,6 @@ export default function Home() {
 
           {showPrivate && (
             <div className="p-6 space-y-6 border-t">
-              {/* Callout */}
               <div className="flex gap-3 text-sm bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
                 <EyeOff className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
                 <p className="text-slate-700">
@@ -917,7 +800,6 @@ export default function Home() {
                 </p>
               </div>
 
-              {/* Private drop zone */}
               {!privateFileData && !isComputingPrivate && (
                 <DropZone
                   id="private-file"
@@ -927,7 +809,6 @@ export default function Home() {
                 />
               )}
 
-              {/* Private computing */}
               {isComputingPrivate && (
                 <Card>
                   <CardContent className="p-10 flex flex-col items-center justify-center text-center space-y-4">
@@ -937,7 +818,6 @@ export default function Home() {
                 </Card>
               )}
 
-              {/* Private registering */}
               {isRegisteringPrivate && !isComputingPrivate && (
                 <Card>
                   <CardContent className="p-10 flex flex-col items-center justify-center text-center space-y-4">
@@ -947,7 +827,6 @@ export default function Home() {
                 </Card>
               )}
 
-              {/* Private error */}
               {privateError && !isComputingPrivate && !isRegisteringPrivate && (
                 <div className="text-sm text-destructive text-center space-y-2">
                   <p>{privateError}</p>
@@ -955,7 +834,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Private certificate */}
               {privateHash && privateFileData && privateTimestamp && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                   <Card className="overflow-hidden border-slate-200 shadow">
@@ -1003,7 +881,6 @@ export default function Home() {
                       </div>
                     </CardContent>
                   </Card>
-                  {/* Private actions */}
                   <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                     <Button size="sm" variant="outline" className="gap-2" onClick={handlePrivateCopy}>
                       {privateCopied ? <><Check className="w-4 h-4" /> Copied!</> : <><Copy className="w-4 h-4" /> Copy fingerprint</>}
@@ -1019,21 +896,6 @@ export default function Home() {
         </div>
 
       </div>
-
-      {/* ── Privacy Settings Modal ──────────────────────────────────────────── */}
-      {privacyModal && hash && fileData && hederaRecord && (
-        <PrivacyModal
-          hash={hash}
-          filename={fileData.name}
-          currentVisibility={currentVisibility}
-          onSuccess={newVis => {
-            setCurrentVisibility(newVis);
-            setPrivacyModal(false);
-            toast({ title: "Visibility updated", description: `This registration is now ${newVis}.` });
-          }}
-          onClose={() => setPrivacyModal(false)}
-        />
-      )}
     </div>
   );
 }
